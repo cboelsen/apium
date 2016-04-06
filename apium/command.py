@@ -55,6 +55,18 @@ def start_workers():
     )
 
     parser.add_argument(
+        '-u', '--username',
+        dest='username', default='',
+        help='The username to use for authentication (default "")',
+    )
+
+    parser.add_argument(
+        '-p', '--password',
+        dest='password', default='',
+        help='The password to use for authentication (default "")',
+    )
+
+    parser.add_argument(
         '--debug',
         dest='debug', action='store_const', default=False, const=True,
         help='Show debug logs',
@@ -66,4 +78,4 @@ def start_workers():
 
     worker.start_worker_processes(args.num_workers, args.modules)
     worker.start_scheduler_process(args.interval, args.modules)
-    worker.start_tcp_server((server, int(port)))
+    worker.start_tcp_server((server, int(port)), username=args.username, password=args.password)

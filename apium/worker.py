@@ -4,11 +4,13 @@ import logging
 import pickle
 import socketserver
 import time
+import traceback
 import uuid
 
 from datetime import datetime
 from multiprocessing import Process, Manager, Queue
 
+from .exceptions import WrongCredentials, BrokenWorker
 from .task import TaskStatus
 
 
@@ -177,17 +179,28 @@ def worker_process():
                     task['task_id'].decode()
                 )
                 task_start = datetime.now()
-                task['result'] = tasks[fn_name](*args, **kwargs)
-                logging.info(
-                    'Task %s [%s] returned %s, in %s seconds',
-                    fn_name,
-                    task['task_id'].decode(),
-                    task['result'],
-                    (datetime.now() - task_start).total_seconds(),
-                )
+                try:
+                    task['result'] = tasks[fn_name](*args, **kwargs)
+                    logging.info(
+                        'Task %s [%s] took %s seconds, and returned %s',
+                        fn_name,
+                        task['task_id'].decode(),
+                        (datetime.now() - task_start).total_seconds(),
+                        task['result'],
+                    )
+                except Exception as err:
+                    task['exception'] = traceback.format_exc()
+                    logging.info(
+                        'Task %s [%s] took %s seconds, and raised an exception:\n%s',
+                        fn_name,
+                        task['task_id'].decode(),
+                        (datetime.now() - task_start).total_seconds(),
+                        traceback.format_exc(),
+                    )
+                results[task['task_id']] = task
             except Exception as err:
-                pass # TODO: Log the error and return it... Somehow.
-            results[task['task_id']] = task
+                logging.exception('Exception caught while retrieveing task from queue: %s', err)
+                results[task['task_id']] = BrokenWorker(traceback.format_exc())
     except KeyboardInterrupt:
         pass
 
@@ -199,7 +212,7 @@ def start_worker_processes(num_workers, modules):
         Process(target=worker_process, name='Worker-' + str(i)).start()
 
 
-def start_tcp_server(server_details):
+def start_tcp_server(server_details, username, password):
 
     class TCPHandler(socketserver.BaseRequestHandler):
 
@@ -207,6 +220,12 @@ def start_tcp_server(server_details):
             self.data = self.request.recv(10240).strip()
             request = pickle.loads(self.data)
             logging.debug('Received request: %s', request)
+            creds = request['credentials']
+            # TODO: Encrypt the creds.
+            if username != creds[0] or password != creds[0]:
+                logging.info('Incorrect credentials received from "%s"', self.client_address[0])
+                self.request.sendall(pickle.dumps(WrongCredentials('creds')))
+                return
             if request['op'] == 'add':
                 # TODO: Use the client address if the client says task is "private".
                 task_id = add_task_to_queue(request['task'], self.client_address[0])
@@ -216,10 +235,15 @@ def start_tcp_server(server_details):
                 result = {'task_id': task_id}
                 try:
                     task = results[task_id]
-                    result_state = {'status': TaskStatus.finished, 'result': task['result']}
+                    result_state = {
+                        'status': TaskStatus.error if 'exception' in task else TaskStatus.finished,
+                        'result': task.get('result'),
+                        'exception': task.get('exception'),
+                    }
                 except KeyError:
-                    result_state = {'status': TaskStatus.pending, 'result': None}
+                    result_state = {'status': TaskStatus.pending}
                 result.update(result_state)
+                logging.debug('Responding to poll with: %s', result)
                 self.request.sendall(pickle.dumps(result))
             elif request['op'] == 'chain':
                 # TODO: Ugly!!! Fix on the client side.

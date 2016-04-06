@@ -6,8 +6,10 @@ import time
 from datetime import datetime
 from enum import Enum
 
+from .exceptions import ApiumWorkerException, TaskTimeoutException, TaskRaisedException
 
-__all__ = ['Task', 'TaskQueue', 'TaskTimeoutException', 'TaskStatus']
+
+__all__ = ['Task', 'TaskQueue', 'TaskStatus']
 
 
 DEFAULT_PORT = 9737
@@ -21,25 +23,25 @@ def sendmsg(data, server):
         received = sock.recv(1024)
     finally:
         sock.close()
-    return pickle.loads(received)
+    response = pickle.loads(received)
+    if isinstance(response, ApiumWorkerException):
+        raise response
+    return response
 
 
-def create_task_on_queue(server, polling_interval, private, data, task_name, *args, **kwargs):
+def create_task_on_queue(server, polling_interval, private, credentials, data, task_name, *args, **kwargs):
     data['task'] = {'name': task_name, 'args': args, 'kwargs': kwargs}
     data['private'] = private
+    data['credentials'] = credentials
     task_id = sendmsg(data, server)
-    return Task(task_id, server, polling_interval, private)
+    return Task(task_id, server, polling_interval, private, credentials)
 
 
 class TaskStatus(Enum):
     finished = 'finished'
     pending = 'pending'
     error = 'error'
-
-
-class TaskTimeoutException(Exception):
-    """The Exception to raise when a task takes longer than expected."""
-    pass
+    cancelled = 'cancelled'
 
 
 class Task:
@@ -56,15 +58,17 @@ class Task:
     :type private: bool
     """
 
-    def __init__(self, task_id, server, polling_interval, private):
+    def __init__(self, task_id, server, polling_interval, private, credentials):
         self._task_id = task_id
         self._server = server
-        self._result = None
         self._polling_interval = polling_interval
         self._start_time = datetime.now()
         self._private = private
+        self._credentials = credentials
 
-        self.timeout = 60
+        self._result = None
+        self._exception = None
+        self._task_status = TaskStatus.pending
 
     def __repr__(self):
         return "{}('{}', {})".format(self.__class__.__name__, self._task_id.decode(), self._server)
@@ -72,47 +76,131 @@ class Task:
     def __str__(self):
         return "<{} {}>".format(self.__class__.__name__, self._task_id.decode())
 
-    def status(self):
-        """Returns the current state of the task.
+    def _raise_if_timed_out(self, timeout):
+        if timeout and (datetime.now() - self._start_time).total_seconds() > timeout:
+            raise TaskTimeoutException('{} timed out after {} seconds'.format(self, timeout))
 
-        Returns either:
+    def _wait(self, timeout):
+        while True:
+            if self.done():
+                break
+            time.sleep(self._polling_interval)
+            self._raise_if_timed_out(timeout)
 
-         - TaskStatus.finished,
-         - TaskStatus.pending
-         - TaskStatus.error.
+    def _status(self):
+        if self._task_status == TaskStatus.pending:
+            data = {'task_id': self._task_id, 'op': 'poll', 'credentials': self._credentials}
+            task_state = sendmsg(data, self._server)
+            self._result = task_state.get('result')
+            self._exception = task_state.get('exception')
+            self._task_status = task_state['status']
+        return self._task_status
 
-        :returns: The state of the task.
-        :rtype: str
+    # TODO: Implement
+    def cancel(self):
+        """Attempt to cancel the task.
+
+        If the task is currently being executed and cannot be cancelled then the
+        method will return False, otherwise the task will be cancelled and the
+        method will return True.
+
+        :returns: Success
+        :rtype: bool
         """
-        data = {'task_id': self._task_id, 'op': 'poll'}
-        task_state = sendmsg(data, self._server)
-        self._result = task_state['result']
-        return task_state['status']
+        raise NotImplementedError()
 
-    def wait(self):
+    # TODO: Implement
+    def cancelled(self):
+        """Returns whether the task has been cancelled.
+
+        :returns: Whether the task has been cancelled.
+        :rtype: bool
+        """
+        raise NotImplementedError()
+
+    def running(self):
+        """Returns whether the task is still running.
+
+        :returns: Whether the task is still running.
+        :rtype: bool
+        """
+        return self._status() == TaskStatus.pending
+
+    def done(self):
+        """Returns whether the task has finished running.
+
+        :returns: Whether the task has finished running.
+        :rtype: bool
+        """
+        return self._status() != TaskStatus.pending
+
+    def result(self, timeout=None):
         """Pause execution until the task is complete and return the result.
 
-        If the Task takes longer than self.timeout, this raises a
-        TaskTimeoutException.
+        Return the value returned by the task. If the call hasn’t yet completed
+        then this method will wait up to timeout seconds.  If the call hasn’t
+        completed in timeout seconds, then an apium.TaskTimeoutException will be
+        raised. If timeout is not specified or None, there is no limit to the
+        wait time.
 
+        If the task is cancelled before completing then apium.CancelledError
+        will be raised.
+
+        If the task raised, this method will raise an apium.TaskRaisedException
+        containing the stack trace from the exception raised by the task.
+
+        :param timeout: How long, in seconds, to wait for the result.
+        :type timeout: float
         :returns: The result of the task.
         :rtype: any
-        :raises: TaskTimeoutException
+        :raises: TaskTimeoutException, TaskRaisedException
         """
-        while True:
-            if self.is_finished():
-                return self.result()
-            time.sleep(self._polling_interval)
-            if (datetime.now() - self._start_time).total_seconds() > self.timeout:
-                raise TaskTimeoutException('{} timed out after {} seconds'.format(self, self.timeout))
-
-    def result(self):
-        """Returns the result of the task, or None if it's yet to finish."""
+        exc = self.exception(timeout)
+        if exc:
+            raise exc
         return self._result
 
-    def is_finished(self):
-        """Returns whether the task has finished."""
-        return self.status() == TaskStatus.finished
+    def exception(self, timeout=None):
+        """Pause execution until the task is complete and return the exception.
+
+        Return the exception raised by the task. If the call hasn’t yet
+        completed then this method will wait up to timeout seconds. If the call
+        hasn’t completed in timeout seconds, then an apium.TaskTimeoutException
+        will be raised. If timeout is not specified or None, there is no limit
+        to the wait time.
+
+        If the task is cancelled before completing then apium.CancelledError
+        will be raised.
+
+        If the call completed without raising, None is returned.
+
+        :param timeout: How long, in seconds, to wait for the exception.
+        :type timeout: float
+        :returns: An exception containing the stack trace of the Exception
+            raised by the task, or None if no exception was raised.
+        :rtype: TaskRaisedException
+        """
+        self._wait(timeout)
+        if self._exception:
+            return TaskRaisedException('Task raised the following exception:\n{}'.format(self._exception))
+        return None
+
+    def add_done_callback(self, fn):
+        """Attaches the callable fn to the future. fn will be called, with the
+        future as its only argument, when the future is cancelled or finishes
+        running.
+
+        Added callables are called in the order that they were added and are
+        always called in a thread belonging to the process that added them. If
+        the callable raises an Exception subclass, it will be logged and
+        ignored. If the callable raises a BaseException subclass, the behavior
+        is undefined.
+
+        If the future has already completed or been cancelled, fn will be called
+        immediately.
+        """
+        # TODO: Pay attention to the "always called in a thread belonging to the process that added them."
+        pass
 
     def chain(self, task_name, *args, **kwargs):
         """Add a new Task to the queue, passing the result of this Task on.
@@ -121,8 +209,8 @@ class Task:
         argument, with the remainder of the arguments being passed after that.
 
         >>> from apium import TaskQueue
-        >>> last_task_in_chain = TaskQueue().add('sub', 8, 3).chain('sub', 2)   # doctest: +SKIP
-        >>> last_task_in_chain.wait()                                           # doctest: +SKIP
+        >>> last_task_in_chain = TaskQueue().submit('sub', 8, 3).chain('sub', 2)   # doctest: +SKIP
+        >>> last_task_in_chain.wait()                                              # doctest: +SKIP
         3
 
         :param task_name: The name of the task to add to the queue.
@@ -136,11 +224,12 @@ class Task:
         """
         data = {'op': 'chain', 'parent': self._task_id}
         return create_task_on_queue(
-            self._server, self._polling_interval, self._private,
+            self._server, self._polling_interval, self._private, self._credentials,
             data, task_name, *args, **kwargs
         )
 
 
+# TODO: Allow SSL connections.
 class TaskQueue:
     """TaskQueue objects represent a queue of tasks that are fed to workers.
 
@@ -158,16 +247,21 @@ class TaskQueue:
     :param private: Whether to allow access to the results of tasks originating
         from here.
     :type private: bool
+    :param username: If provided, the username required to authenticate.
+    :type username: str
+    :param password: If provided, the password required to authenticate.
+    :type password: str
     """
 
-    # TODO: Authentication
     def __init__(
             self, address='localhost', port=DEFAULT_PORT,
-            polling_interval=1.0, private=False
+            polling_interval=1.0, private=False,
+            username='', password=''
     ):
         self._server = (address, port)
         self._polling_interval = polling_interval
         self._private = private
+        self._credentials = (username, password)
 
     def __repr__(self):
         return "{}('{}', {})".format(self.__class__.__name__, *self._server)
@@ -175,14 +269,14 @@ class TaskQueue:
     def __str__(self):
         return "<{} @ {}:{}>".format(self.__class__.__name__, *self._server)
 
-    def add(self, task_name, *args, **kwargs):
-        """Add a task to the queue to be processed by the workers.
+    def submit(self, task_name, *args, **kwargs):
+        """Submit a task to the queue to be processed by the workers.
 
         .. doctest::
 
             >>> from apium import TaskQueue
-            >>> task = TaskQueue().add('add', 2, 3, 4)  # doctest: +SKIP
-            >>> task.wait()                             # doctest: +SKIP
+            >>> task = TaskQueue().submit('add', 2, 3, 4)  # doctest: +SKIP
+            >>> task.wait()                                # doctest: +SKIP
             9
 
         :param task_name: The name of the task to process.
@@ -195,11 +289,11 @@ class TaskQueue:
         :rtype: Task
         """
         return create_task_on_queue(
-            self._server, self._polling_interval, self._private,
+            self._server, self._polling_interval, self._private, self._credentials,
             {'op': 'add'}, task_name, *args, **kwargs
         )
 
-    def map(self, task_name, iterable, timeout=60):
+    def map(self, task_name, iterable, timeout=None):
         """Run an instance of task_name for each item in iterable.
 
         The tasks are added to the queue at the same time and the results of the
@@ -227,13 +321,12 @@ class TaskQueue:
         :rtype: any
         :raises: TaskTimeoutException
         """
-        tasks = list(map(functools.partial(self.add, task_name), iterable))
+        tasks = list(map(functools.partial(self.submit, task_name), iterable))
         while tasks:
             for task in tasks[:]:
-                if task.is_finished():
+                if task.done():
                     tasks.remove(task)
                     yield task.result()
                     continue
-                time.sleep(self._polling_interval)
-                if (datetime.now() - task._start_time).total_seconds() > timeout:
-                    raise TaskTimeoutException('{} timed out after {} seconds'.format(tasks, timeout))
+                task._raise_if_timed_out(timeout)
+            time.sleep(self._polling_interval)

@@ -22,3 +22,8 @@ def mul(*args):
 @apium.schedule_task(datetime.now() + timedelta(seconds=30), timedelta(seconds=2))
 def printer1():
     return 'printer1'
+
+
+@apium.register_task
+def raiser():
+    raise Exception('Example exception!!')
