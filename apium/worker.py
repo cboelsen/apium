@@ -21,7 +21,7 @@ _mgr = Manager()
 results = _mgr.dict()
 task_queue = Queue()
 tasks = {}
-schedules = collections.defaultdict(list)
+schedule_queue = Queue()
 
 
 def register_task(fn):
@@ -99,7 +99,8 @@ def schedule_task(start_when=None, repeat_every=None, args=None, kwargs=None):
             start_when or datetime.now(),
             repeat_every
         )
-        schedules[fn_name].append((start_when or datetime.now(), repeat_every, args or (), kwargs or {}))
+        schedule = (start_when or datetime.now(), repeat_every, args or (), kwargs or {})
+        schedule_queue.put((fn_name, schedule))
         return register_task(fn)
     return _schedule_task
 
@@ -128,8 +129,12 @@ def add_task_to_queue(task, client):
 
 
 def scheduler_process(interval):
+    schedules = collections.defaultdict(list)
     try:
         while True:
+            while not schedule_queue.empty():
+                fn_name, schedule = schedule_queue.get(False)
+                schedules[fn_name].append(schedule)
             start_time = datetime.now()
             for fn_name, fn_schedules in schedules.copy().items():
                 for loc, schedule in enumerate(fn_schedules[:]):
