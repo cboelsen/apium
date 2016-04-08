@@ -2,26 +2,105 @@ import collections
 import importlib
 import logging
 import pickle
+import queue
+import socket
 import socketserver
 import time
 import traceback
 import uuid
 
 from datetime import datetime
-from multiprocessing import Process, Manager, Queue
+from multiprocessing import Process, Queue
 
-from .exceptions import WrongCredentials, BrokenWorker
-from .task import TaskStatus
+from .exceptions import WrongCredentials  # , BrokenWorker
+from .task import TaskStatus, sendmsg
 
 
 __all__ = ['register_task', 'schedule_task']
 
 
-_mgr = Manager()
-results = _mgr.dict()
-task_queue = Queue()
 tasks = {}
+task_queue = Queue()
+task_runs = {}
 schedule_queue = Queue()
+
+
+class TaskRun:
+
+    def __init__(self, details, client):
+        try:
+            self._id = details['task_id']
+        except KeyError:
+            self._id = str(uuid.uuid4()).encode()
+        self.details = details
+        self.details.update({'task_id': self._id, 'client': client, 'status': TaskStatus.pending})
+        self.client = client
+
+    def __getitem__(self, key):
+        return self.details[key]
+
+    def __setitem__(self, key, value):
+        self.details[key] = value
+
+    def queue(self):
+        logging.debug(
+            'Adding task %s(%s%s%s) [%s]%s to queue',
+            self.details['name'],
+            format_args(self.details['args']),
+            ', ' if self.details['args'] and self.details['kwargs'] else '',
+            format_kwargs(self.details['kwargs']),
+            self.details['task_id'].decode(),
+            ' from {}'.format(self.client) if self.client else ''
+        )
+        task_queue.put(self.details)
+
+    def id(self):
+        return self._id
+
+    def update(self, new_status):
+        self['status'] = new_status
+        sendmsg({'op': 'update', 'credentials': ('', ''), 'task': self.details}, ('localhost', 9737))
+
+    def run(self):
+        self.update(TaskStatus.starting)
+        args = self['args']
+        fn_name = self['name']
+        kwargs = self['kwargs']
+        logging.info(
+            'Running task %s(%s%s%s) [%s]...',
+            fn_name,
+            format_args(args),
+            ', ' if args and kwargs else '',
+            format_kwargs(kwargs),
+            self['task_id'].decode()
+        )
+        self.update(TaskStatus.running)
+        task_start = datetime.now()
+        try:
+            self['result'] = tasks[fn_name](*args, **kwargs)
+            self.update(TaskStatus.finished)
+            logging.info(
+                'Task %s [%s] took %s seconds, and returned %s',
+                fn_name,
+                self['task_id'].decode(),
+                (datetime.now() - task_start).total_seconds(),
+                self['result'],
+            )
+        except Exception:
+            self['exception'] = traceback.format_exc()
+            self.update(TaskStatus.error)
+            logging.info(
+                'Task %s [%s] took %s seconds, and raised an exception:\n%s',
+                fn_name,
+                self['task_id'].decode(),
+                (datetime.now() - task_start).total_seconds(),
+                traceback.format_exc(),
+            )
+
+    @classmethod
+    def get_queued(cls):
+        details = cls._queue.get()
+        return TaskRun(details, details['client'])
 
 
 def register_task(fn):
@@ -114,28 +193,19 @@ def format_kwargs(kwargs):
 
 
 def add_task_to_queue(task, client):
-    task.update({'task_id': str(uuid.uuid4()).encode(), 'client': client})
-    logging.debug(
-        'Adding task %s(%s%s%s) [%s]%s to queue',
-        task['name'],
-        format_args(task['args']),
-        ', ' if task['args'] and task['kwargs'] else '',
-        format_kwargs(task['kwargs']),
-        task['task_id'].decode(),
-        ' from {}'.format(client) if client else ''
-    )
-    task_queue.put(task)
-    return task['task_id']
+    t = TaskRun(task, client)
+    t.queue()
+    return t.details
 
 
 def scheduler_process(interval):
     schedules = collections.defaultdict(list)
     try:
         while True:
+            start_time = datetime.now()
             while not schedule_queue.empty():
                 fn_name, schedule = schedule_queue.get(False)
                 schedules[fn_name].append(schedule)
-            start_time = datetime.now()
             for fn_name, fn_schedules in schedules.copy().items():
                 for loc, schedule in enumerate(fn_schedules[:]):
                     next_run, repeat_every, args, kwargs = schedule
@@ -161,51 +231,17 @@ def start_scheduler_process(interval, modules):
 def worker_process():
     try:
         while True:
-            task = task_queue.get()
+            task = sendmsg({'op': 'get', 'credentials': ('', '')}, ('localhost', 9737))
+            if task is None:
+                time.sleep(0.1)
+                continue
+            task = TaskRun(task, task['client'])
             try:
-                try:
-                    parent_id = task['parent']
-                    try:
-                        args = (results[parent_id]['result'], *task['args'])
-                    except KeyError:
-                        time.sleep(0.1)
-                        task_queue.put(task)
-                        continue
-                except KeyError:
-                    args = task['args']
-                fn_name = task['name']
-                kwargs = task['kwargs']
-                logging.info(
-                    'Running task %s(%s%s%s) [%s]...',
-                    fn_name,
-                    format_args(args),
-                    ', ' if args and kwargs else '',
-                    format_kwargs(kwargs),
-                    task['task_id'].decode()
-                )
-                task_start = datetime.now()
-                try:
-                    task['result'] = tasks[fn_name](*args, **kwargs)
-                    logging.info(
-                        'Task %s [%s] took %s seconds, and returned %s',
-                        fn_name,
-                        task['task_id'].decode(),
-                        (datetime.now() - task_start).total_seconds(),
-                        task['result'],
-                    )
-                except Exception as err:
-                    task['exception'] = traceback.format_exc()
-                    logging.info(
-                        'Task %s [%s] took %s seconds, and raised an exception:\n%s',
-                        fn_name,
-                        task['task_id'].decode(),
-                        (datetime.now() - task_start).total_seconds(),
-                        traceback.format_exc(),
-                    )
-                results[task['task_id']] = task
+                task.run()
             except Exception as err:
                 logging.exception('Exception caught while retrieveing task from queue: %s', err)
-                results[task['task_id']] = BrokenWorker(traceback.format_exc())
+                task['exception'] = traceback.format_exc()
+                task.update(TaskStatus.broken)
     except KeyboardInterrupt:
         pass
 
@@ -233,31 +269,49 @@ def start_tcp_server(server_details, username, password):
                 return
             if request['op'] == 'add':
                 # TODO: Use the client address if the client says task is "private".
-                task_id = add_task_to_queue(request['task'], self.client_address[0])
-                self.request.sendall(pickle.dumps(task_id))
+                task = add_task_to_queue(request['task'], self.client_address[0])
+                task_runs[task['task_id']] = task
+                self.request.sendall(pickle.dumps(task))
+            elif request['op'] == 'get':
+                try:
+                    task = task_queue.get(False)
+                    if 'parent' in task:
+                        parent = task_runs[task['parent']]
+                        if parent['status'] == TaskStatus.finished:
+                            args = (parent['result'], ) + task['args']
+                            task['args'] = args
+                        elif parent['status'] == TaskStatus.error:
+                            task['status'] = TaskStatus.error
+                            task['exception'] = parent['exception']
+                            task_runs[task['task_id']] = task
+                            self.request.sendall(pickle.dumps(None))
+                            return
+                        else:
+                            task_queue.put(task)
+                            self.request.sendall(pickle.dumps(None))
+                            return
+                    self.request.sendall(pickle.dumps(task))
+                except queue.Empty:
+                    self.request.sendall(pickle.dumps(None))
+            elif request['op'] == 'update':
+                task = request['task']
+                task_runs[task['task_id']] = task
+                self.request.sendall(pickle.dumps(None))
             elif request['op'] == 'poll':
                 task_id = request['task_id']
-                result = {'task_id': task_id}
-                try:
-                    task = results[task_id]
-                    result_state = {
-                        'status': TaskStatus.error if 'exception' in task else TaskStatus.finished,
-                        'result': task.get('result'),
-                        'exception': task.get('exception'),
-                    }
-                except KeyError:
-                    result_state = {'status': TaskStatus.pending}
-                result.update(result_state)
-                logging.debug('Responding to poll with: %s', result)
-                self.request.sendall(pickle.dumps(result))
+                task = task_runs[task_id]
+                logging.debug('Responding to poll with: %s', task)
+                self.request.sendall(pickle.dumps(task))
             elif request['op'] == 'chain':
                 # TODO: Ugly!!! Fix on the client side.
                 request['task']['parent'] = request['parent']
-                task_id = add_task_to_queue(request['task'], self.client_address[0])
-                logging.info('Chaining task [%s] to [%s]', task_id, request['task']['parent'])
-                self.request.sendall(pickle.dumps(task_id))
+                task = add_task_to_queue(request['task'], self.client_address[0])
+                task_runs[task['task_id']] = task
+                logging.info('Chaining task [%s] to [%s]', task['task_id'], request['task']['parent'])
+                self.request.sendall(pickle.dumps(task))
 
-    server = socketserver.TCPServer(server_details, TCPHandler)
+    server = socketserver.ThreadingTCPServer(server_details, TCPHandler)
+    server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

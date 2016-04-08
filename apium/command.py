@@ -76,6 +76,13 @@ def start_workers():
     setup_logging(args)
     server, port = args.bind.rsplit(':', 1)
 
+    proc = multiprocessing.Process(
+        target=worker.start_tcp_server,
+        args=((server, int(port)), ),
+        kwargs={'username': args.username, 'password': args.password},
+        name='Server'
+    )
+    proc.start()
     worker.start_worker_processes(args.num_workers, args.modules)
     worker.start_scheduler_process(args.interval, args.modules)
-    worker.start_tcp_server((server, int(port)), username=args.username, password=args.password)
+    proc.join()

@@ -25,5 +25,5 @@ def printer1():
 
 
 @apium.register_task
-def raiser():
+def raiser(*args):
     raise Exception('Example exception!!')

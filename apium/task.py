@@ -16,32 +16,32 @@ DEFAULT_PORT = 9737
 
 
 def sendmsg(data, server):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.connect(server)
         sock.sendall(pickle.dumps(data))
         received = sock.recv(1024)
-    finally:
-        sock.close()
     response = pickle.loads(received)
     if isinstance(response, ApiumWorkerException):
         raise response
     return response
 
 
-def create_task_on_queue(server, polling_interval, private, credentials, data, task_name, *args, **kwargs):
+def submit_task_to_queue(server, polling_interval, private, credentials, data, task_name, *args, **kwargs):
     data['task'] = {'name': task_name, 'args': args, 'kwargs': kwargs}
     data['private'] = private
     data['credentials'] = credentials
-    task_id = sendmsg(data, server)
-    return Task(task_id, server, polling_interval, private, credentials)
+    task_details = sendmsg(data, server)
+    return Task(task_details['task_id'], task_details['status'], server, polling_interval, private, credentials)
 
 
 class TaskStatus(Enum):
-    finished = 'finished'
     pending = 'pending'
+    starting = 'starting'
+    running = 'running'
+    finished = 'finished'
     error = 'error'
     cancelled = 'cancelled'
+    broken = 'broken'
 
 
 class Task:
@@ -58,7 +58,9 @@ class Task:
     :type private: bool
     """
 
-    def __init__(self, task_id, server, polling_interval, private, credentials):
+    RUNNING_STATUSES = [TaskStatus.pending, TaskStatus.starting, TaskStatus.running]
+
+    def __init__(self, task_id, status, server, polling_interval, private, credentials):
         self._task_id = task_id
         self._server = server
         self._polling_interval = polling_interval
@@ -68,7 +70,7 @@ class Task:
 
         self._result = None
         self._exception = None
-        self._task_status = TaskStatus.pending
+        self._task_status = status
 
     def __repr__(self):
         return "{}('{}', {})".format(self.__class__.__name__, self._task_id.decode(), self._server)
@@ -88,7 +90,7 @@ class Task:
             self._raise_if_timed_out(timeout)
 
     def _status(self):
-        if self._task_status == TaskStatus.pending:
+        if self._task_status in self.RUNNING_STATUSES:
             data = {'task_id': self._task_id, 'op': 'poll', 'credentials': self._credentials}
             task_state = sendmsg(data, self._server)
             self._result = task_state.get('result')
@@ -124,7 +126,7 @@ class Task:
         :returns: Whether the task is still running.
         :rtype: bool
         """
-        return self._status() == TaskStatus.pending
+        return self._status() in self.RUNNING_STATUSES
 
     def done(self):
         """Returns whether the task has finished running.
@@ -132,7 +134,7 @@ class Task:
         :returns: Whether the task has finished running.
         :rtype: bool
         """
-        return self._status() != TaskStatus.pending
+        return not self.running()
 
     def result(self, timeout=None):
         """Pause execution until the task is complete and return the result.
@@ -223,7 +225,7 @@ class Task:
         :rtype: Task
         """
         data = {'op': 'chain', 'parent': self._task_id}
-        return create_task_on_queue(
+        return submit_task_to_queue(
             self._server, self._polling_interval, self._private, self._credentials,
             data, task_name, *args, **kwargs
         )
@@ -288,7 +290,7 @@ class TaskQueue:
         :returns: A Task representing the task added to the queue.
         :rtype: Task
         """
-        return create_task_on_queue(
+        return submit_task_to_queue(
             self._server, self._polling_interval, self._private, self._credentials,
             {'op': 'add'}, task_name, *args, **kwargs
         )
