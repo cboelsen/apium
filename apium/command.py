@@ -2,8 +2,8 @@ import argparse
 import logging
 import multiprocessing
 
-from . import worker
-from .task import DEFAULT_PORT
+from . import server
+from .client import DEFAULT_PORT
 
 
 def setup_logging(args):
@@ -74,15 +74,7 @@ def start_workers():
 
     args = parser.parse_args()
     setup_logging(args)
-    server, port = args.bind.rsplit(':', 1)
+    server_ip, port = args.bind.rsplit(':', 1)
+    address = (server_ip, int(port))
 
-    proc = multiprocessing.Process(
-        target=worker.start_tcp_server,
-        args=((server, int(port)), ),
-        kwargs={'username': args.username, 'password': args.password},
-        name='Server'
-    )
-    proc.start()
-    worker.start_worker_processes(args.num_workers, args.modules)
-    worker.start_scheduler_process(args.interval, args.modules)
-    proc.join()
+    server.run_workers(address, args.modules, args.num_workers, args.interval)
