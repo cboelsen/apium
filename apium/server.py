@@ -1,5 +1,6 @@
 import collections
 import concurrent.futures
+import functools
 import importlib
 import logging
 import pickle
@@ -9,13 +10,15 @@ import traceback
 import uuid
 
 from datetime import datetime
-from multiprocessing import Process, Queue
+from multiprocessing import Process, Queue, Lock
 
 from .client import sendmsg
 
 
 tasks = {}
 futures = {}
+chains = collections.defaultdict(list)
+chains_lock = Lock()
 schedule_queue = Queue()
 
 
@@ -163,12 +166,41 @@ def scheduler_process(address, interval, schedule_queue):
 
 
 def get_future_state(future):
+    if future is None:
+        return {}
     with future._condition:
         return {
             'state': future._state,
             'result': future._result,
             'exception': future._exception,
         }
+
+
+def check_for_chain(parent_id, executor, parent_future):
+    try:
+        with chains_lock:
+            for task in chains[parent_id]:
+                add_task(executor, task, parent_future)
+    except KeyError:
+        pass
+
+
+def add_task(executor, task, parent_future):
+    try:
+        if parent_future:
+            args = (parent_future.result(), ) + task['args']
+        else:
+            args = task['args']
+    except:
+        future = concurrent.futures.Future()
+        future._state = parent_future._state
+        future._result = parent_future._result
+        future._exception = parent_future._exception
+        futures[task['id']] = future
+        return
+    future = executor.submit(run_task, task['id'], task['name'], *args, **task['kwargs'])
+    future.add_done_callback(functools.partial(check_for_chain, task['id'], executor))
+    futures[task['id']] = future
 
 
 def run_workers(address, modules, num_workers, interval):
@@ -203,14 +235,17 @@ def run_workers(address, modules, num_workers, interval):
                     ', ' if task['args'] and task['kwargs'] else '',
                     format_kwargs(task['kwargs']),
                     task_id.decode(),
-                    ' from {}'.format(task['client']) if task['client'] else ''
+                    ' from {}'.format(task['client']) if task['client'] else '',
                 )
-                futures[task_id] = executor.submit(run_task, task_id, task['name'], *task['args'], **task['kwargs'])
+                add_task(executor, task, None)
                 self.request.sendall(pickle.dumps(task))
             elif request['op'] == 'cancel':
                 task_id = request['id']
                 future = futures[task_id]
-                response = future.cancel()
+                if future is not None:
+                    response = future.cancel()
+                else:
+                    pass  # TODO: Remove from chains lists.
                 if response:
                     logging.debug('Cancelled task [%s]', task_id)
                 else:
@@ -224,6 +259,38 @@ def run_workers(address, modules, num_workers, interval):
                 state = get_future_state(future)
                 logging.debug('Responding to poll for task [%s] with: %s', task_id, state)
                 self.request.sendall(pickle.dumps(state))
+            elif request['op'] == 'chain':
+                # TODO: Use the client address if the client says task is "private".
+                task = request['task']
+                parent_id = request['parent']
+                if task['name'] not in tasks:
+                    pass  # TODO: Return exception.
+                task['client'] = self.client_address[0]
+                task_id = str(uuid.uuid4()).encode()
+                task['id'] = task_id
+                try:
+                    future = futures[parent_id]
+                    if future is not None and future.done():
+                        add_task(executor, task, future)
+                    else:
+                        with chains_lock:
+                            chains[parent_id].append(task)
+                        futures[task_id] = None
+                except KeyError:
+                    with chains_lock:
+                        chains[parent_id].append(task)
+                    futures[task_id] = None
+                logging.debug(
+                    'Chaining task %s(%s%s%s) [%s]%s to [%s]',
+                    task['name'],
+                    format_args(task['args']),
+                    ', ' if task['args'] and task['kwargs'] else '',
+                    format_kwargs(task['kwargs']),
+                    task_id.decode(),
+                    ' from {}'.format(task['client']) if task['client'] else '',
+                    parent_id,
+                )
+                self.request.sendall(pickle.dumps(task))
 
     server = socketserver.ThreadingTCPServer(address, TCPHandler)
 

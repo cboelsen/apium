@@ -32,9 +32,12 @@ class Future(concurrent.futures.Future):
         self._polling_interval = polling_interval
 
     def _update_details(self, details):
-        self._state = details['state']
-        self._result = details['result']
-        self._exception = details['exception']
+        try:
+            self._state = details['state']
+            self._result = details['result']
+            self._exception = details['exception']
+        except KeyError:
+            pass
 
     def _update_remotely(self):
         details = sendmsg(self._address, {'op': 'poll', 'id': self._task['id']})
@@ -54,3 +57,11 @@ class Future(concurrent.futures.Future):
         self._update_details(details)
         super(Future, self).cancel()
         return details['response']
+
+    def then(self, fn, *args, **kwargs):
+        task = sendmsg(self._address, {
+            'op': 'chain',
+            'task': {'name': fn, 'args': args, 'kwargs': kwargs},
+            'parent': self._task['id']
+        })
+        return Future(self._address, task, self._polling_interval)
