@@ -162,6 +162,15 @@ def scheduler_process(address, interval, schedule_queue):
         pass
 
 
+def get_future_state(future):
+    with future._condition:
+        return {
+            'state': future._state,
+            'result': future._result,
+            'exception': future._exception,
+        }
+
+
 def run_workers(address, modules, num_workers, interval):
 
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
@@ -177,6 +186,8 @@ def run_workers(address, modules, num_workers, interval):
             self.data = self.request.recv(10240).strip()
             request = pickle.loads(self.data)
             logging.debug('Received request: %s', request)
+            # TODO: Check credentials
+            # TODO: Encrypt credentials
             if request['op'] == 'submit':
                 # TODO: Use the client address if the client says task is "private".
                 task = request['task']
@@ -184,58 +195,45 @@ def run_workers(address, modules, num_workers, interval):
                     pass  # TODO: Return exception.
                 task['client'] = self.client_address[0]
                 task_id = str(uuid.uuid4()).encode()
-                task['task_id'] = task_id
+                task['id'] = task_id
                 logging.debug(
                     'Adding task %s(%s%s%s) [%s]%s to queue',
                     task['name'],
                     format_args(task['args']),
                     ', ' if task['args'] and task['kwargs'] else '',
                     format_kwargs(task['kwargs']),
-                    task['task_id'].decode(),
+                    task_id.decode(),
                     ' from {}'.format(task['client']) if task['client'] else ''
                 )
                 futures[task_id] = executor.submit(run_task, task_id, task['name'], *task['args'], **task['kwargs'])
                 self.request.sendall(pickle.dumps(task))
             elif request['op'] == 'cancel':
-                task_id = request['task_id']
+                task_id = request['id']
                 future = futures[task_id]
-                try:
-                    response = future.cancel()
-                except:  # except what?!?
-                    pass
-                with future._condition:
-                    # TODO: Duplication!!!!
-                    task = {
-                        'state': future._state,
-                        'result': future._result,
-                        'exception': future._exception,
-                        'response': response,
-                    }
-                    logging.debug('Responding to poll with: %s', task)
-                    self.request.sendall(pickle.dumps(task))
+                response = future.cancel()
+                if response:
+                    logging.debug('Cancelled task [%s]', task_id)
+                else:
+                    logging.debug('Failed to cancel task [%s]', task_id)
+                state = get_future_state(future)
+                state['response'] = response
+                self.request.sendall(pickle.dumps(state))
             elif request['op'] == 'poll':
-                task_id = request['task_id']
+                task_id = request['id']
                 future = futures[task_id]
-                with future._condition:
-                    task = {
-                        'state': future._state,
-                        'result': future._result,
-                        'exception': future._exception,
-                    }
-                    logging.debug('Responding to poll with: %s', task)
-                    self.request.sendall(pickle.dumps(task))
+                state = get_future_state(future)
+                logging.debug('Responding to poll for task [%s] with: %s', task_id, state)
+                self.request.sendall(pickle.dumps(state))
 
     server = socketserver.ThreadingTCPServer(address, TCPHandler)
 
-    scheduler.start()
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print('KeyboardInterrupt')
-    finally:
-        print('Shutting down scheduler...')
-        scheduler.join()
-        print('Shutting down workers...')
-        executor.shutdown(wait=True)
-        print('Shutting down server...')
-        server.shutdown()
+    with executor:
+        scheduler.start()
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            print('KeyboardInterrupt')
+        finally:
+            scheduler.join()
+            server.shutdown()
+            server.server_close()

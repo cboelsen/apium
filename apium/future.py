@@ -37,7 +37,7 @@ class Future(concurrent.futures.Future):
         self._exception = details['exception']
 
     def _update_remotely(self):
-        details = sendmsg(self._address, {'op': 'poll', 'task_id': self._task['task_id']})
+        details = sendmsg(self._address, {'op': 'poll', 'id': self._task['id']})
         self._update_details(details)
 
     def _wait_remotely(self, timeout):
@@ -50,7 +50,7 @@ class Future(concurrent.futures.Future):
                 return
 
     def cancel(self):
-        details = sendmsg(self._address, {'op': 'cancel', 'task_id': self._task['task_id']})
+        details = sendmsg(self._address, {'op': 'cancel', 'id': self._task['id']})
         self._update_details(details)
         super(Future, self).cancel()
         return details['response']
