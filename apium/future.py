@@ -3,7 +3,7 @@ import threading
 import time
 import weakref
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .client import sendmsg
 
@@ -44,12 +44,18 @@ class Future(concurrent.futures.Future):
         self._update_details(details)
 
     def _wait_remotely(self, timeout):
+        if timeout:
+            timeout_time = datetime.now() + timedelta(seconds=timeout)
+            has_timed_out = lambda: datetime.now() > timeout_time
+        else:
+            has_timed_out = lambda: False
+
         while True:
             self._update_remotely()
             if self._state not in [concurrent.futures._base.PENDING, concurrent.futures._base.RUNNING]:
                 break
             time.sleep(self._polling_interval)
-            if timeout and (datetime.now() - self._start_time).total_seconds() > timeout:
+            if has_timed_out():
                 return
 
     def cancel(self):
@@ -61,7 +67,15 @@ class Future(concurrent.futures.Future):
     def then(self, fn, *args, **kwargs):
         task = sendmsg(self._address, {
             'op': 'chain',
-            'task': {'name': fn, 'args': args, 'kwargs': kwargs},
-            'parent': self._task['id']
+            'task': {'name': fn, 'args': args, 'kwargs': kwargs, 'type': 'then'},
+            'parent': self._task['id'],
+        })
+        return Future(self._address, task, self._polling_interval)
+
+    def catch(self, fn, *args, **kwargs):
+        task = sendmsg(self._address, {
+            'op': 'chain',
+            'task': {'name': fn, 'args': args, 'kwargs': kwargs, 'type': 'catch'},
+            'parent': self._task['id'],
         })
         return Future(self._address, task, self._polling_interval)

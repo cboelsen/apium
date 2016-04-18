@@ -1,5 +1,6 @@
 import collections
 import concurrent.futures
+import contextlib
 import functools
 import importlib
 import logging
@@ -13,6 +14,7 @@ from datetime import datetime
 from multiprocessing import Process, Queue, Lock
 
 from .client import sendmsg
+from .exceptions import RemoteException
 
 
 tasks = {}
@@ -89,11 +91,8 @@ def schedule_task(start_when=None, repeat_every=None, args=None, kwargs=None):
     def _schedule_task(fn):
         fn_name = fn.__name__
         logging.debug(
-            'Scheduling task %s(%s%s%s) for %s, repeating every %s',
-            fn_name,
-            format_args(args),
-            ', ' if args and kwargs else '',
-            format_kwargs(kwargs),
+            'Scheduling task %s for %s, repeating every %s',
+            format_task({'name': fn_name, 'args': args, 'kwargs': kwargs}),
             start_when or datetime.now(),
             repeat_every
         )
@@ -103,43 +102,51 @@ def schedule_task(start_when=None, repeat_every=None, args=None, kwargs=None):
     return _schedule_task
 
 
-def format_args(args):
-    return ', '.join([str(a) for a in (args or ())])
+def format_task(task, chain=False):
+    if chain:
+        task = task.copy()
+        task['args'] = ('X', ) + task['args']
 
+    def format_args(args):
+        return ', '.join([repr(a) for a in (args or ())])
 
-def format_kwargs(kwargs):
-    return ', '.join([str(k) + '=' + str(v) for k, v in (kwargs or {}).items()])
+    def format_kwargs(kwargs):
+        return ', '.join([str(k) + '=' + repr(v) for k, v in (kwargs or {}).items()])
 
-
-def run_task(task_id, name, *args, **kwargs):
-    logging.info(
-        'Running task %s(%s%s%s) [%s]...',
-        name,
-        format_args(args),
-        ', ' if args and kwargs else '',
-        format_kwargs(kwargs),
-        task_id.decode()
+    return '{}({}{}{}){}{}'.format(
+        task['name'],
+        format_args(task['args']),
+        ', ' if task['args'] and task['kwargs'] else '',
+        format_kwargs(task['kwargs']),
+        ' [{}]'.format(task['id'].decode()) if task.get('id') else '',
+        ' from {}'.format(task['client']) if task.get('client') else '',
     )
+
+
+def run_task(task):
+    formatted_task = format_task(task)
+    logging.info('Running task %s...', formatted_task)
     task_start = datetime.now()
     try:
-        result = tasks[name](*args, **kwargs)
+        result = tasks[task['name']](*task['args'], **task['kwargs'])
         logging.info(
-            'Task %s [%s] took %s seconds, and returned %s',
-            name,
-            task_id.decode(),
+            'Task %s took %s seconds, and returned %s',
+            formatted_task,
             (datetime.now() - task_start).total_seconds(),
             result,
         )
         return result
-    except:
+    except Exception as err:
         logging.info(
-            'Task %s [%s] took %s seconds, and raised an exception:\n%s',
-            name,
-            task_id.decode(),
+            'Task %s took %s seconds, and raised an exception:\n%s',
+            formatted_task,
             (datetime.now() - task_start).total_seconds(),
             traceback.format_exc(),
         )
-        raise
+        remote_exc = RemoteException(traceback.format_exc())
+        # TODO: This doesn't work if the client hasn't loaded the same modules.
+        # remote_exc.exception = err
+        raise remote_exc
 
 
 def scheduler_process(address, interval, schedule_queue):
@@ -148,7 +155,10 @@ def scheduler_process(address, interval, schedule_queue):
         while True:
             start_time = datetime.now()
             while not schedule_queue.empty():
-                fn_name, schedule = schedule_queue.get(False)
+                new_schedule = schedule_queue.get(False)
+                if new_schedule is None:
+                    return
+                fn_name, schedule = new_schedule
                 schedules[fn_name].append(schedule)
             for fn_name, fn_schedules in schedules.copy().items():
                 for loc, schedule in enumerate(fn_schedules[:]):
@@ -181,29 +191,44 @@ def check_for_chain(parent_id, executor, parent_future):
         with chains_lock:
             for task in chains[parent_id]:
                 add_task(executor, task, parent_future)
+            del chains[parent_id]
     except KeyError:
         pass
+
+
+def future_values_fall_through(task_id, parent_future):
+    future = concurrent.futures.Future()
+    future._state = parent_future._state
+    future._result = parent_future._result
+    future._exception = parent_future._exception
+    futures[task_id] = future
+
+
+def submit_new_task(executor, task):
+    future = executor.submit(run_task, task)
+    future.add_done_callback(functools.partial(check_for_chain, task['id'], executor))
+    futures[task['id']] = future
 
 
 def add_task(executor, task, parent_future):
     try:
         if parent_future:
-            args = (parent_future.result(), ) + task['args']
+            task['args'] = (parent_future.result(), ) + task['args']
+    except BaseException as err:
+        if task['type'] == 'catch':
+            task['args'] = (err, ) + task['args']
+            submit_new_task(executor, task)
         else:
-            args = task['args']
-    except:
-        future = concurrent.futures.Future()
-        future._state = parent_future._state
-        future._result = parent_future._result
-        future._exception = parent_future._exception
-        futures[task['id']] = future
-        return
-    future = executor.submit(run_task, task['id'], task['name'], *args, **task['kwargs'])
-    future.add_done_callback(functools.partial(check_for_chain, task['id'], executor))
-    futures[task['id']] = future
+            future_values_fall_through(task['id'], parent_future)
+    else:
+        if task['type'] == 'then':
+            submit_new_task(executor, task)
+        else:
+            future_values_fall_through(task['id'], parent_future)
 
 
-def run_workers(address, modules, num_workers, interval):
+@contextlib.contextmanager
+def create_workers(address, modules, num_workers, interval):
 
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
 
@@ -217,7 +242,7 @@ def run_workers(address, modules, num_workers, interval):
         def handle(self):
             self.data = self.request.recv(10240).strip()
             request = pickle.loads(self.data)
-            logging.debug('Received request: %s', request)
+            logging.debug('Received request from %s: %s', self.client_address[0], request)
             # TODO: Check credentials
             # TODO: Encrypt credentials
             if request['op'] == 'submit':
@@ -228,16 +253,8 @@ def run_workers(address, modules, num_workers, interval):
                 task['client'] = self.client_address[0]
                 task_id = str(uuid.uuid4()).encode()
                 task['id'] = task_id
-                logging.debug(
-                    'Adding task %s(%s%s%s) [%s]%s to queue',
-                    task['name'],
-                    format_args(task['args']),
-                    ', ' if task['args'] and task['kwargs'] else '',
-                    format_kwargs(task['kwargs']),
-                    task_id.decode(),
-                    ' from {}'.format(task['client']) if task['client'] else '',
-                )
-                add_task(executor, task, None)
+                logging.debug('Adding task %s to queue', format_task(task))
+                submit_new_task(executor, task)
                 self.request.sendall(pickle.dumps(task))
             elif request['op'] == 'cancel':
                 task_id = request['id']
@@ -245,11 +262,16 @@ def run_workers(address, modules, num_workers, interval):
                 if future is not None:
                     response = future.cancel()
                 else:
-                    pass  # TODO: Remove from chains lists.
+                    response = False
+                    for children in chains.values():
+                        for child in children:
+                            if child['id'] == task_id:
+                                response = True
+                                children.remove(child)
                 if response:
-                    logging.debug('Cancelled task [%s]', task_id)
+                    logging.debug('Cancelled task [%s]', task_id.decode())
                 else:
-                    logging.debug('Failed to cancel task [%s]', task_id)
+                    logging.debug('Failed to cancel task [%s]', task_id.decode())
                 state = get_future_state(future)
                 state['response'] = response
                 self.request.sendall(pickle.dumps(state))
@@ -257,7 +279,7 @@ def run_workers(address, modules, num_workers, interval):
                 task_id = request['id']
                 future = futures[task_id]
                 state = get_future_state(future)
-                logging.debug('Responding to poll for task [%s] with: %s', task_id, state)
+                logging.debug('Responding to poll for task [%s] with: %s', task_id.decode(), state)
                 self.request.sendall(pickle.dumps(state))
             elif request['op'] == 'chain':
                 # TODO: Use the client address if the client says task is "private".
@@ -280,16 +302,7 @@ def run_workers(address, modules, num_workers, interval):
                     with chains_lock:
                         chains[parent_id].append(task)
                     futures[task_id] = None
-                logging.debug(
-                    'Chaining task %s(%s%s%s) [%s]%s to [%s]',
-                    task['name'],
-                    format_args(task['args']),
-                    ', ' if task['args'] and task['kwargs'] else '',
-                    format_kwargs(task['kwargs']),
-                    task_id.decode(),
-                    ' from {}'.format(task['client']) if task['client'] else '',
-                    parent_id,
-                )
+                logging.debug('Chaining task %s to [%s]', format_task(task, chain=True), parent_id.decode())
                 self.request.sendall(pickle.dumps(task))
 
     server = socketserver.ThreadingTCPServer(address, TCPHandler)
@@ -297,10 +310,16 @@ def run_workers(address, modules, num_workers, interval):
     with executor:
         scheduler.start()
         try:
-            server.serve_forever()
+            yield server
         except KeyboardInterrupt:
             print('KeyboardInterrupt')
         finally:
+            schedule_queue.put(None)
             scheduler.join()
             server.shutdown()
             server.server_close()
+
+
+def main(*args, **kwargs):
+    with create_workers(*args, **kwargs) as workers:
+        workers.serve_forever()

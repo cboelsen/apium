@@ -2,7 +2,7 @@ import argparse
 import logging
 import multiprocessing
 
-from . import server
+from . import worker
 from .client import DEFAULT_PORT
 
 
@@ -74,7 +74,7 @@ def start_workers():
 
     args = parser.parse_args()
     setup_logging(args)
-    server_ip, port = args.bind.rsplit(':', 1)
-    address = (server_ip, int(port))
+    server, port = args.bind.rsplit(':', 1)
+    address = (server, int(port))
 
-    server.run_workers(address, args.modules, args.num_workers, args.interval)
+    worker.main(address, args.modules, args.num_workers, args.interval)
