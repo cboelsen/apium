@@ -6,3 +6,7 @@ from concurrent.futures import (
 
 class RemoteException(Exception):
     pass
+
+
+class TaskDoesNotExist(Exception):
+    pass

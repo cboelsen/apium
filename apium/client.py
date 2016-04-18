@@ -11,4 +11,6 @@ def sendmsg(address, data):
         sock.sendall(pickle.dumps(data))
         received = sock.recv(10240)
         result = pickle.loads(received)
+        if isinstance(result, Exception):
+            raise result
         return result

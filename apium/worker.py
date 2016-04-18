@@ -14,7 +14,7 @@ from datetime import datetime
 from multiprocessing import Process, Queue, Lock
 
 from .client import sendmsg
-from .exceptions import RemoteException
+from .exceptions import RemoteException, TaskDoesNotExist
 
 
 tasks = {}
@@ -187,13 +187,10 @@ def get_future_state(future):
 
 
 def check_for_chain(parent_id, executor, parent_future):
-    try:
-        with chains_lock:
-            for task in chains[parent_id]:
-                add_task(executor, task, parent_future)
-            del chains[parent_id]
-    except KeyError:
-        pass
+    with chains_lock:
+        for task in chains[parent_id]:
+            add_task(executor, task, parent_future)
+        del chains[parent_id]
 
 
 def future_values_fall_through(task_id, parent_future):
@@ -249,7 +246,8 @@ def create_workers(address, modules, num_workers, interval):
                 # TODO: Use the client address if the client says task is "private".
                 task = request['task']
                 if task['name'] not in tasks:
-                    pass  # TODO: Return exception.
+                    self.request.sendall(pickle.dumps(TaskDoesNotExist(task['name'])))
+                    return
                 task['client'] = self.client_address[0]
                 task_id = str(uuid.uuid4()).encode()
                 task['id'] = task_id
@@ -263,11 +261,12 @@ def create_workers(address, modules, num_workers, interval):
                     response = future.cancel()
                 else:
                     response = False
-                    for children in chains.values():
-                        for child in children:
-                            if child['id'] == task_id:
-                                response = True
-                                children.remove(child)
+                    with chains_lock:
+                        for children in chains.values():
+                            for child in children[:]:
+                                if child['id'] == task_id:
+                                    response = True
+                                    children.remove(child)
                 if response:
                     logging.debug('Cancelled task [%s]', task_id.decode())
                 else:
@@ -286,19 +285,15 @@ def create_workers(address, modules, num_workers, interval):
                 task = request['task']
                 parent_id = request['parent']
                 if task['name'] not in tasks:
-                    pass  # TODO: Return exception.
+                    self.request.sendall(pickle.dumps(TaskDoesNotExist(task['name'])))
+                    return
                 task['client'] = self.client_address[0]
                 task_id = str(uuid.uuid4()).encode()
                 task['id'] = task_id
-                try:
-                    future = futures[parent_id]
-                    if future is not None and future.done():
-                        add_task(executor, task, future)
-                    else:
-                        with chains_lock:
-                            chains[parent_id].append(task)
-                        futures[task_id] = None
-                except KeyError:
+                future = futures[parent_id]
+                if future is not None and future.done():
+                    add_task(executor, task, future)
+                else:
                     with chains_lock:
                         chains[parent_id].append(task)
                     futures[task_id] = None

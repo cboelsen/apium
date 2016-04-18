@@ -91,6 +91,45 @@ def test_tasks_catching_exception_in_chain___exception_not_propagated(port_num, 
     assert 'ValueError' in task.result()
 
 
+def test_tasks_exceptions_falling_through_tasks___exception_propagated(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    task = executor.submit('raiser').then('add', 2)
+    with pytest.raises(apium.RemoteException):
+        task.result()
+
+
+def test_tasks_results_falling_through_catch___result_propagated(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    task = executor.submit('add', 2, 3).catch('format_exc')
+    assert task.result() is 5
+
+
+def test_importing_tasks_from_module___tasks_can_be_run(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    task = executor.submit('chain', [1, 2, 3], [4, 5, 6])
+    assert list(task.result()) == [1, 2, 3, 4, 5, 6]
+
+
+def test_calling_non_existant_task___exception_raised(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    with pytest.raises(apium.TaskDoesNotExist):
+        executor.submit('non-existant')
+
+
+def test_chaining_non_existant_task___exception_raised(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    with pytest.raises(apium.TaskDoesNotExist):
+        executor.submit('add', 2, 3).then('non-existant')
+
+
+def test_chaining_task_that_is_yet_to_be_queued___chaining_as_per_normal(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    values = list(range(6))
+    tasks = [executor.submit('add', value) for value in values]
+    chained_task = tasks[-1].then('add', 5)
+    assert chained_task.result() is 10
+
+
 def test_task_timing_out___exception_raised(port_num, running_worker):
     executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
     task = executor.submit('add')
