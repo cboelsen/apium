@@ -77,4 +77,5 @@ def start_workers():
     server, port = args.bind.rsplit(':', 1)
     address = (server, int(port))
 
-    worker.main(address, args.modules, args.num_workers, args.interval)
+    with worker.create_workers(address, args.modules, args.num_workers, args.interval) as workers:
+        workers.serve_forever()

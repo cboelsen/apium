@@ -14,7 +14,7 @@ from datetime import datetime
 from multiprocessing import Process, Queue, Lock
 
 from .client import sendmsg
-from .exceptions import RemoteException, TaskDoesNotExist
+from .exceptions import RemoteException, TaskDoesNotExist, UnknownMessage
 
 
 tasks = {}
@@ -136,7 +136,8 @@ def run_task(task):
             result,
         )
         return result
-    except Exception as err:
+    # except Exception as err:
+    except Exception:
         logging.info(
             'Task %s took %s seconds, and raised an exception:\n%s',
             formatted_task,
@@ -209,8 +210,7 @@ def submit_new_task(executor, task):
 
 def add_task(executor, task, parent_future):
     try:
-        if parent_future:
-            task['args'] = (parent_future.result(), ) + task['args']
+        task['args'] = (parent_future.result(), ) + task['args']
     except BaseException as err:
         if task['type'] == 'catch':
             task['args'] = (err, ) + task['args']
@@ -242,63 +242,69 @@ def create_workers(address, modules, num_workers, interval):
             logging.debug('Received request from %s: %s', self.client_address[0], request)
             # TODO: Check credentials
             # TODO: Encrypt credentials
-            if request['op'] == 'submit':
-                # TODO: Use the client address if the client says task is "private".
-                task = request['task']
-                if task['name'] not in tasks:
-                    self.request.sendall(pickle.dumps(TaskDoesNotExist(task['name'])))
-                    return
-                task['client'] = self.client_address[0]
-                task_id = str(uuid.uuid4()).encode()
-                task['id'] = task_id
-                logging.debug('Adding task %s to queue', format_task(task))
-                submit_new_task(executor, task)
-                self.request.sendall(pickle.dumps(task))
-            elif request['op'] == 'cancel':
-                task_id = request['id']
-                future = futures[task_id]
-                if future is not None:
-                    response = future.cancel()
+            try:
+                if request['op'] == 'submit':
+                    # TODO: Use the client address if the client says task is "private".
+                    task = request['task']
+                    if task['name'] not in tasks:
+                        self.request.sendall(pickle.dumps(TaskDoesNotExist(task['name'])))
+                        return
+                    task['client'] = self.client_address[0]
+                    task_id = str(uuid.uuid4()).encode()
+                    task['id'] = task_id
+                    logging.debug('Adding task %s to queue', format_task(task))
+                    submit_new_task(executor, task)
+                    self.request.sendall(pickle.dumps(task))
+                elif request['op'] == 'cancel':
+                    task_id = request['id']
+                    future = futures[task_id]
+                    if future is not None:
+                        response = future.cancel()
+                    else:
+                        response = False
+                        with chains_lock:
+                            for children in chains.values():
+                                for child in children[:]:
+                                    if child['id'] == task_id:
+                                        response = True
+                                        children.remove(child)
+                    if response:
+                        logging.debug('Cancelled task [%s]', task_id.decode())
+                    else:
+                        logging.debug('Failed to cancel task [%s]', task_id.decode())
+                    state = get_future_state(future)
+                    state['response'] = response
+                    self.request.sendall(pickle.dumps(state))
+                elif request['op'] == 'poll':
+                    task_id = request['id']
+                    future = futures[task_id]
+                    state = get_future_state(future)
+                    logging.debug('Responding to poll for task [%s] with: %s', task_id.decode(), state)
+                    self.request.sendall(pickle.dumps(state))
+                elif request['op'] == 'chain':
+                    # TODO: Use the client address if the client says task is "private".
+                    task = request['task']
+                    parent_id = request['parent']
+                    if task['name'] not in tasks:
+                        self.request.sendall(pickle.dumps(TaskDoesNotExist(task['name'])))
+                        return
+                    task['client'] = self.client_address[0]
+                    task_id = str(uuid.uuid4()).encode()
+                    task['id'] = task_id
+                    future = futures[parent_id]
+                    if future is not None and future.done():
+                        add_task(executor, task, future)
+                    else:
+                        with chains_lock:
+                            chains[parent_id].append(task)
+                        futures[task_id] = None
+                    logging.debug('Chaining task %s to [%s]', format_task(task, chain=True), parent_id.decode())
+                    self.request.sendall(pickle.dumps(task))
                 else:
-                    response = False
-                    with chains_lock:
-                        for children in chains.values():
-                            for child in children[:]:
-                                if child['id'] == task_id:
-                                    response = True
-                                    children.remove(child)
-                if response:
-                    logging.debug('Cancelled task [%s]', task_id.decode())
-                else:
-                    logging.debug('Failed to cancel task [%s]', task_id.decode())
-                state = get_future_state(future)
-                state['response'] = response
-                self.request.sendall(pickle.dumps(state))
-            elif request['op'] == 'poll':
-                task_id = request['id']
-                future = futures[task_id]
-                state = get_future_state(future)
-                logging.debug('Responding to poll for task [%s] with: %s', task_id.decode(), state)
-                self.request.sendall(pickle.dumps(state))
-            elif request['op'] == 'chain':
-                # TODO: Use the client address if the client says task is "private".
-                task = request['task']
-                parent_id = request['parent']
-                if task['name'] not in tasks:
-                    self.request.sendall(pickle.dumps(TaskDoesNotExist(task['name'])))
-                    return
-                task['client'] = self.client_address[0]
-                task_id = str(uuid.uuid4()).encode()
-                task['id'] = task_id
-                future = futures[parent_id]
-                if future is not None and future.done():
-                    add_task(executor, task, future)
-                else:
-                    with chains_lock:
-                        chains[parent_id].append(task)
-                    futures[task_id] = None
-                logging.debug('Chaining task %s to [%s]', format_task(task, chain=True), parent_id.decode())
-                self.request.sendall(pickle.dumps(task))
+                    self.request.sendall(pickle.dumps(UnknownMessage(request)))
+            except:
+                logging.warning('Exception raised when processing request:\n%s', traceback.format_exc())
+                self.request.sendall(pickle.dumps(UnknownMessage(request)))
 
     server = socketserver.ThreadingTCPServer(address, TCPHandler)
 
@@ -313,8 +319,3 @@ def create_workers(address, modules, num_workers, interval):
             scheduler.join()
             server.shutdown()
             server.server_close()
-
-
-def main(*args, **kwargs):
-    with create_workers(*args, **kwargs) as workers:
-        workers.serve_forever()

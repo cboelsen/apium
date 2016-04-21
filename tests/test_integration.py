@@ -1,5 +1,9 @@
 import apium
 import pytest
+import tempfile
+import time
+
+from datetime import datetime, timedelta
 
 
 def test_basic_task_run___state_is_consistent(port_num, running_worker):
@@ -104,6 +108,14 @@ def test_tasks_results_falling_through_catch___result_propagated(port_num, runni
     assert task.result() is 5
 
 
+def test_tasks_chaining_on_a_finished_task___chaining_as_per_normal(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    task = executor.submit('add', 2, 3)
+    task.result()
+    chain = task.then('add', 5)
+    assert chain.result() is 10
+
+
 def test_importing_tasks_from_module___tasks_can_be_run(port_num, running_worker):
     executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
     task = executor.submit('chain', [1, 2, 3], [4, 5, 6])
@@ -135,3 +147,42 @@ def test_task_timing_out___exception_raised(port_num, running_worker):
     task = executor.submit('add')
     with pytest.raises(apium.TimeoutError):
         task.result(timeout=0.01)
+
+
+def test_scheduling_tasks___tasks_called_on_schedule(port_num, running_worker):
+    with tempfile.NamedTemporaryFile() as tmpfile:
+        filename = tmpfile.name
+
+        wait = 0.1
+        import task_import
+        apium.schedule_task(
+            datetime.now() + timedelta(seconds=wait),
+            args=(filename, )
+        )(task_import.scheduled_fn)
+        time.sleep(2 * wait)
+        assert len(open(filename).read()) is 1
+
+
+def test_scheduling_repeating_tasks___tasks_called_on_repeating_schedule(port_num, running_worker):
+    with tempfile.NamedTemporaryFile() as tmpfile:
+        filename = tmpfile.name
+
+        wait = 0.1
+        import task_import
+        apium.schedule_task(
+            datetime.now(),
+            timedelta(seconds=wait),
+            args=(filename, )
+        )(task_import.scheduled_fn)
+        time.sleep(5 * wait)
+        assert len(open(filename).read()) > 3
+
+
+def test_sending_a_garbage_message___exception_raised1(port_num, running_worker):
+    with pytest.raises(apium.UnknownMessage):
+        apium.client.sendmsg(('localhost', port_num), {'op': 'bob'})
+
+
+def test_sending_a_garbage_message___exception_raised2(port_num, running_worker):
+    with pytest.raises(apium.UnknownMessage):
+        apium.client.sendmsg(('localhost', port_num), 'bob')

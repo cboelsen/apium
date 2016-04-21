@@ -1,3 +1,10 @@
 [run]
 branch = True
 omit = *apium/command.py
+
+[report]
+exclude_lines =
+    def __repr__
+    def __str__
+    except KeyboardInterrupt:
+    if __name__ == '__main__':

@@ -10,3 +10,7 @@ class RemoteException(Exception):
 
 class TaskDoesNotExist(Exception):
     pass
+
+
+class UnknownMessage(Exception):
+    pass
