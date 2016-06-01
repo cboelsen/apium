@@ -14,3 +14,7 @@ class TaskDoesNotExist(Exception):
 
 class UnknownMessage(Exception):
     pass
+
+
+class DeadExecutor(Exception):
+    pass

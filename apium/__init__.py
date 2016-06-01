@@ -1,3 +1,4 @@
+from concurrent.futures import wait
 from .exceptions import *
 from .executor import TaskExecutor
 from .worker import register_task, schedule_task
