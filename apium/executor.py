@@ -15,7 +15,7 @@ class Future(concurrent.futures.Future):
 
     def _executor(self):
         executor = self._executor_ref()
-        if not executor:
+        if not executor or not executor._running:
             raise DeadExecutor()
         return executor
 
@@ -56,22 +56,16 @@ class TaskExecutor(concurrent.futures.Executor):
                 future.set_running_or_notify_cancel()
         except KeyError:
             return
-        try:
-            result = details['result']
-            if future._result != result:
-                future.set_result(result)
-                del self._tasks[future._id]
-                return
-        except KeyError:
-            pass
-        try:
-            exc = details['exception']
-            if future._exception != exc:
-                future.set_exception(exc)
-                del self._tasks[future._id]
-                return
-        except KeyError:
-            pass
+        result = details['result']
+        if future._result != result:
+            future.set_result(result)
+            del self._tasks[future._id]
+            return
+        exc = details['exception']
+        if future._exception != exc:
+            future.set_exception(exc)
+            del self._tasks[future._id]
+            return
         future._state = state
 
     def _poll(self):

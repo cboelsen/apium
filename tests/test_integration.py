@@ -1,4 +1,5 @@
 import apium
+import functools
 import pytest
 import tempfile
 import time
@@ -189,11 +190,11 @@ def test_sending_a_garbage_message___exception_raised2(port_num, running_worker)
         apium.client.sendmsg(('localhost', port_num), 'bob')
 
 
-#def test_cancelling_task_after_executor_dies___exception_raised(port_num, running_worker):
-#    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
-#        task = executor.submit('add', 1, 2, 3)
-#    with pytest.raises(apium.DeadExecutor):
-#        task.cancel()
+def test_cancelling_task_after_executor_dies___exception_raised(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
+        task = executor.submit('add', 1, 2, 3)
+    with pytest.raises(apium.DeadExecutor):
+        task.cancel()
 
 
 def test_wait_all_completed___all_futures_done(port_num, running_worker):
@@ -202,3 +203,32 @@ def test_wait_all_completed___all_futures_done(port_num, running_worker):
         tasks = [executor.submit('add', value) for value in values]
         results = apium.wait(tasks)
         assert len(results.done) == len(values)
+        assert len(results.not_done) == 0
+
+
+def test_wait_first_completed___one_future_done(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
+        values = list(range(6))
+        tasks = [executor.submit('add', value) for value in values]
+        results = apium.wait(tasks, return_when=apium.FIRST_COMPLETED)
+        assert len(results.done) == 1
+        assert len(results.not_done) == len(values) - 1
+
+
+def test_wait_first_exception___all_futures_done(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.02) as executor:
+        tasks = [executor.submit('add', 1)]
+        tasks.append(executor.submit('raiser'))
+        tasks += [executor.submit('add', 2)]
+        results = apium.wait(tasks, return_when=apium.FIRST_EXCEPTION)
+        assert len(results.done) == 1
+        assert len(results.not_done) == 2
+
+
+def test_as_completed___futures__returned_as_sompleted(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
+        values = list(range(6))
+        tasks = list(apium.as_completed([executor.submit('add', value) for value in values]))
+        assert len(tasks) == len(values)
+        assert functools.reduce(lambda d1, d2: d1 and d2, map(lambda f: f.done(), tasks))
+        assert sum(map(lambda f: f.result(), tasks)) == sum(values)
