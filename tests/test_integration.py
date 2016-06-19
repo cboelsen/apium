@@ -1,10 +1,14 @@
-import apium
 import functools
+import inspect
 import pytest
 import tempfile
 import time
 
 from datetime import datetime, timedelta
+
+import apium
+
+from apium.inspect import inspect_worker
 
 
 def test_basic_task_run___state_is_consistent(port_num, running_worker):
@@ -225,10 +229,30 @@ def test_wait_first_exception___all_futures_done(port_num, running_worker):
         assert len(results.not_done) == 2
 
 
-def test_as_completed___futures__returned_as_sompleted(port_num, running_worker):
+def test_as_completed___futures_returned_as_sompleted(port_num, running_worker):
     with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
         values = list(range(6))
         tasks = list(apium.as_completed([executor.submit('add', value) for value in values]))
         assert len(tasks) == len(values)
         assert functools.reduce(lambda d1, d2: d1 and d2, map(lambda f: f.done(), tasks))
         assert sum(map(lambda f: f.result(), tasks)) == sum(values)
+
+
+def test_inspect___registered_task_names_returned(port_num, running_worker):
+    details = inspect_worker(('localhost', port_num))
+    tasks = details['tasks']
+    assert len(tasks) == 5
+    task_names = [t[0] for t in tasks]
+    assert 'chain' in task_names
+    assert 'add' in task_names
+    assert 'raiser' in task_names
+    assert 'scheduled_fn' in task_names
+    assert 'format_exc' in task_names
+
+
+def test_inspect___registered_signature_returned(port_num, running_worker):
+    details = inspect_worker(('localhost', port_num))
+    tasks = details['tasks']
+    assert len(tasks) == 5
+    assert len([t for t in tasks if isinstance(t[1], inspect.Signature)]) == 4
+    assert len([t for t in tasks if isinstance(t[1], ValueError)]) == 1

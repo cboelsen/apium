@@ -12,6 +12,7 @@ from .worker import register_task, schedule_task
 # TODO:
 # - Authentication
 # - Encryption
+# - Private tasks
 # - More error checking:
 #   - Non existent task.
 #   - Problems unpickling task on the server.

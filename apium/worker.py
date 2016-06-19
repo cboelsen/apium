@@ -3,6 +3,7 @@ import concurrent.futures
 import contextlib
 import functools
 import importlib
+import inspect
 import logging
 import pickle
 import socketserver
@@ -136,7 +137,6 @@ def run_task(task):
             result,
         )
         return result
-    # except Exception as err:
     except Exception:
         logging.info(
             'Task %s took %s seconds, and raised an exception:\n%s',
@@ -145,8 +145,6 @@ def run_task(task):
             traceback.format_exc(),
         )
         remote_exc = RemoteException(traceback.format_exc())
-        # TODO: This doesn't work if the client hasn't loaded the same modules.
-        # remote_exc.exception = err
         raise remote_exc
 
 
@@ -300,6 +298,19 @@ def create_workers(address, modules, num_workers, interval):
                         futures[task_id] = None
                     logging.debug('Chaining task %s to [%s]', format_task(task, chain=True), parent_id.decode())
                     self.request.sendall(pickle.dumps(task))
+                elif request['op'] == 'inspect':
+                    task_list = []
+                    for task_name, task_fn in tasks.items():
+                        try:
+                            signature = inspect.signature(task_fn)
+                        except ValueError as err:
+                            signature = err
+                        task_list.append((task_name, signature))
+                    response = {
+                            'tasks': task_list,
+                            # 'schedules': schedules,
+                    }
+                    self.request.sendall(pickle.dumps(response))
                 else:
                     self.request.sendall(pickle.dumps(UnknownMessage(request)))
             except:

@@ -10,7 +10,7 @@ setup(
     entry_points = {
         'console_scripts': [
             'apium-worker = apium.command:start_workers',
-             # TODO: Add script to inspect queue state.
+            'apium-inspect = apium.command:inspect',
         ],
     },
     license='LICENSE',

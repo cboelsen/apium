@@ -4,6 +4,7 @@ import multiprocessing
 
 from . import worker
 from .client import DEFAULT_PORT
+from .inspect import print_inspected_worker, inspect_worker
 
 
 def setup_logging(args):
@@ -79,3 +80,32 @@ def start_workers():
 
     with worker.create_workers(address, args.modules, args.num_workers, args.interval) as workers:
         workers.serve_forever()
+
+
+def inspect():
+    parser = argparse.ArgumentParser(description='Inspect the task queue of the given workers.')
+
+    DEFAULT_BIND = 'localhost:{}'.format(DEFAULT_PORT)
+    parser.add_argument(
+        '-c', '--connect',
+        dest='connect', default=DEFAULT_BIND,
+        help='The address and port to bind the TCP server to (default {})'.format(DEFAULT_BIND),
+    )
+
+    parser.add_argument(
+        '-u', '--username',
+        dest='username', default='',
+        help='The username to use for authentication (default "")',
+    )
+
+    parser.add_argument(
+        '-p', '--password',
+        dest='password', default='',
+        help='The password to use for authentication (default "")',
+    )
+
+    args = parser.parse_args()
+    server, port = args.connect.rsplit(':', 1)
+    address = (server, int(port))
+
+    print_inspected_worker(inspect_worker(address))
