@@ -14,7 +14,6 @@ from .worker import register_task, schedule_task
 # - Encryption
 # - Private tasks
 # - More error checking:
-#   - Non existent task.
 #   - Problems unpickling task on the server.
 #   - Problems unpickling results on the client.
 #   - Chaining task to non existent parent.
