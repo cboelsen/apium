@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 import apium
 
-from apium.inspect import inspect_worker
+from apium.inspect import inspect_worker, print_inspected_worker
 
 
 def test_basic_task_run___state_is_consistent(port_num, running_worker):
@@ -242,7 +242,7 @@ def test_inspect___registered_task_names_returned(port_num, running_worker):
     details = inspect_worker(('localhost', port_num))
     tasks = details['tasks']
     assert len(tasks) == 5
-    task_names = [t[0] for t in tasks]
+    task_names = tasks.keys()
     assert 'chain' in task_names
     assert 'add' in task_names
     assert 'raiser' in task_names
@@ -254,5 +254,38 @@ def test_inspect___registered_signature_returned(port_num, running_worker):
     details = inspect_worker(('localhost', port_num))
     tasks = details['tasks']
     assert len(tasks) == 5
-    assert len([t for t in tasks if isinstance(t[1], inspect.Signature)]) == 4
-    assert len([t for t in tasks if isinstance(t[1], ValueError)]) == 1
+    assert len([t for t in tasks.values() if isinstance(t, inspect.Signature)]) == 4
+    assert len([t for t in tasks.values() if isinstance(t, ValueError)]) == 1
+
+
+def test_inspect___schedules_of_tasks_returned_with_correct_repeat(port_num, running_worker):
+    details = inspect_worker(('localhost', port_num))
+    schedules = details['schedules']
+    assert len(schedules) == 1
+    assert len(schedules['scheduled_fn']) == 1
+    assert schedules['scheduled_fn'][0][1] == timedelta(seconds=0.1)
+
+
+def test_inspect___schedules_of_tasks_returned_with_correct_initial(port_num, running_worker):
+    future_initial = datetime.now() + timedelta(seconds=3600)
+    import task_import
+    apium.schedule_task(
+        future_initial,
+        args=('/tmp/a/b/c/d/e/f', ),
+        kwargs={'fake': 'arg'},
+    )(task_import.scheduled_fn)
+    time.sleep(0.2)
+
+    details = inspect_worker(('localhost', port_num))
+    schedules = details['schedules']
+    assert len(schedules) == 1
+    assert len(schedules['scheduled_fn']) == 2
+    assert schedules['scheduled_fn'][1][0] == future_initial
+    assert schedules['scheduled_fn'][1][2] == ('/tmp/a/b/c/d/e/f', )
+    assert schedules['scheduled_fn'][1][3] == {'fake': 'arg'}
+
+
+def test_print_inspect___runs_without_exception(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.02) as executor:
+        executor.submit('add', 1)
+        print_inspected_worker(inspect_worker(('localhost', port_num)))

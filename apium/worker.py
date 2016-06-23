@@ -7,15 +7,17 @@ import inspect
 import logging
 import pickle
 import socketserver
+import threading
 import time
 import traceback
 import uuid
 
 from datetime import datetime
-from multiprocessing import Process, Queue, Lock
+from multiprocessing import Queue, Lock
 
 from .client import sendmsg
 from .exceptions import RemoteException, TaskDoesNotExist, UnknownMessage
+from .utils import format_fn
 
 
 tasks = {}
@@ -23,6 +25,7 @@ futures = {}
 chains = collections.defaultdict(list)
 chains_lock = Lock()
 schedule_queue = Queue()
+schedules = collections.defaultdict(list)
 
 
 def register_task(fn):
@@ -108,17 +111,8 @@ def format_task(task, chain=False):
         task = task.copy()
         task['args'] = ('X', ) + task['args']
 
-    def format_args(args):
-        return ', '.join([repr(a) for a in (args or ())])
-
-    def format_kwargs(kwargs):
-        return ', '.join([str(k) + '=' + repr(v) for k, v in (kwargs or {}).items()])
-
-    return '{}({}{}{}){}{}'.format(
-        task['name'],
-        format_args(task['args']),
-        ', ' if task['args'] and task['kwargs'] else '',
-        format_kwargs(task['kwargs']),
+    return '{}{}{}'.format(
+        format_fn(task['name'], task['args'], task['kwargs']),
         ' [{}]'.format(task['id'].decode()) if task.get('id') else '',
         ' from {}'.format(task['client']) if task.get('client') else '',
     )
@@ -149,7 +143,6 @@ def run_task(task):
 
 
 def scheduler_process(address, interval, schedule_queue):
-    schedules = collections.defaultdict(list)
     try:
         while True:
             start_time = datetime.now()
@@ -203,6 +196,7 @@ def future_values_fall_through(task_id, parent_future):
 def submit_new_task(executor, task):
     future = executor.submit(run_task, task)
     future.add_done_callback(functools.partial(check_for_chain, task['id'], executor))
+    future._task = task
     futures[task['id']] = future
 
 
@@ -230,7 +224,12 @@ def create_workers(address, modules, num_workers, interval):
     for mod in modules:
         importlib.import_module(mod)
 
-    scheduler = Process(target=scheduler_process, args=(address, interval, schedule_queue), name='Scheduler')
+    scheduler = threading.Thread(
+        target=scheduler_process,
+        args=(address, interval, schedule_queue),
+        name='Scheduler',
+        daemon=True
+    )
 
     class TCPHandler(socketserver.BaseRequestHandler):
 
@@ -299,16 +298,17 @@ def create_workers(address, modules, num_workers, interval):
                     logging.debug('Chaining task %s to [%s]', format_task(task, chain=True), parent_id.decode())
                     self.request.sendall(pickle.dumps(task))
                 elif request['op'] == 'inspect':
-                    task_list = []
+                    task_list = {}
                     for task_name, task_fn in tasks.items():
                         try:
                             signature = inspect.signature(task_fn)
                         except ValueError as err:
                             signature = err
-                        task_list.append((task_name, signature))
+                        task_list[task_name] = signature
                     response = {
-                            'tasks': task_list,
-                            # 'schedules': schedules,
+                        'tasks': task_list,
+                        'schedules': schedules,
+                        'running': [f._task for f in futures.values() if f and f.running()],
                     }
                     self.request.sendall(pickle.dumps(response))
                 else:
@@ -317,16 +317,17 @@ def create_workers(address, modules, num_workers, interval):
                 logging.warning('Exception raised when processing request:\n%s', traceback.format_exc())
                 self.request.sendall(pickle.dumps(UnknownMessage(request)))
 
+    socketserver.ThreadingTCPServer.allow_reuse_address = True
     server = socketserver.ThreadingTCPServer(address, TCPHandler)
 
-    with executor:
-        scheduler.start()
-        try:
-            yield server
-        except KeyboardInterrupt:
-            print('KeyboardInterrupt')
-        finally:
-            schedule_queue.put(None)
-            scheduler.join()
-            server.shutdown()
-            server.server_close()
+    scheduler.start()
+    try:
+        yield server
+    except KeyboardInterrupt:
+        print('KeyboardInterrupt')
+    finally:
+        schedule_queue.put(None)
+        scheduler.join()
+        server.shutdown()
+        server.server_close()
+        executor.shutdown(wait=False)

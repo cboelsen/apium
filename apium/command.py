@@ -46,7 +46,7 @@ def start_workers():
     parser.add_argument(
         '-i', '--interval',
         dest='interval', type=float, default=DEFAULT_INTERVAL,
-        help='How often the scheduler should poll for scheduled tasks (default {})'.format(DEFAULT_INTERVAL),
+        help='How often the scheduler should poll for scheduled tasks in seconds (default {})'.format(DEFAULT_INTERVAL),
     )
 
     parser.add_argument(

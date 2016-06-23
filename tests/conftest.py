@@ -66,9 +66,9 @@ def task_format_exc():
 @pytest.yield_fixture(scope="session")
 def running_worker(port_num, task_add, task_raise, task_format_exc):
     import threading
-    with apium.worker.create_workers(('localhost', port_num), ['task_import'], 2, 0.05) as workers:
+    with apium.worker.create_workers(('localhost', port_num), ['task_import'], 2, 0.01) as workers:
         thread = threading.Thread(target=workers.serve_forever)
         thread.start()
         while not is_port_open(port_num):
-            time.sleep(0.5)
+            time.sleep(0.1)
         yield
