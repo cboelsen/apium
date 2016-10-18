@@ -6,7 +6,6 @@ import importlib
 import inspect
 import logging
 import pickle
-import socketserver
 import threading
 import time
 import traceback
@@ -18,6 +17,12 @@ from multiprocessing import Queue, Lock
 from .client import sendmsg
 from .exceptions import RemoteException, TaskDoesNotExist, UnknownMessage
 from .utils import format_fn
+
+
+try:
+    import socketserver
+except ImportError:
+    import SocketServer as socketserver
 
 
 tasks = {}
@@ -228,8 +233,8 @@ def create_workers(address, modules, num_workers, interval):
         target=scheduler_process,
         args=(address, interval, schedule_queue),
         name='Scheduler',
-        daemon=True
     )
+    scheduler.daemon = True
 
     class TCPHandler(socketserver.BaseRequestHandler):
 

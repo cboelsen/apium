@@ -1,8 +1,15 @@
 import apium
-import itertools
 
 
-apium.register_task(itertools.chain)
+def chain(*iterables):
+    result = []
+    for it in iterables:
+        for element in it:
+            result.append(element)
+    return result
+
+
+apium.register_task(chain)
 
 
 @apium.register_task
