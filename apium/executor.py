@@ -31,7 +31,10 @@ class Future(concurrent.futures.Future):
         cannot be cancelled if it is running or has already completed.
         """
         self._executor()._cancel_task(self)
-        return super(Future, self).cancel()
+        result = super(Future, self).cancel()
+        if result:
+            del self._executor()._tasks[self._id]
+        return result
 
     def then(self, fn, *args, **kwargs):
         """Chain a new task to the result of this task.
@@ -113,6 +116,7 @@ class TaskExecutor(concurrent.futures.Executor):
         self._polling_interval = polling_interval
         self._tasks = {}
         self._running = True
+        self._shutting_down = False
 
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         self._executor.submit(self._poll)
@@ -182,7 +186,7 @@ class TaskExecutor(concurrent.futures.Executor):
         :raises RuntimeError: if the Executor has already shut down.
         :raises TaskDoesNotExist: if a task with the given name doesn't exist.
         """
-        if not self._running:
+        if self._shutting_down:
             raise RuntimeError('cannot schedule new tasks after shutdown')
         task = sendmsg(self._address, {'op': 'submit', 'task': {'name': task_name, 'args': args, 'kwargs': kwargs}})
         return self._new_future(task)
@@ -202,7 +206,8 @@ class TaskExecutor(concurrent.futures.Executor):
             executor have been reclaimed.
         :type wait: bool
         """
-        self._running = False
+        self._shutting_down = True
         if wait:
             while self._tasks:
                 time.sleep(self._polling_interval)
+        self._running = False
