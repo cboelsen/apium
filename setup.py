@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='apium',
-    version='0.0.1',
+    version='0.0.2',
     author='Christian Boelsen',
     author_email='christianboelsen+github@gmail.com',
     packages=find_packages(exclude=["tests"]),
