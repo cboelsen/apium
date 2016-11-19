@@ -254,8 +254,7 @@ def test_inspect___registered_signature_returned(port_num, running_worker):
     details = inspect_worker(('localhost', port_num))
     tasks = details['tasks']
     assert len(tasks) == 5
-    assert len([t for t in tasks.values() if isinstance(t, inspect.Signature)]) == 4
-    assert len([t for t in tasks.values() if isinstance(t, ValueError)]) == 1
+    assert len([t for t in tasks.values() if isinstance(t, str)]) == 5
 
 
 def test_inspect___schedules_of_tasks_returned_with_correct_repeat(port_num, running_worker):

@@ -3,7 +3,6 @@ import concurrent.futures
 import contextlib
 import functools
 import importlib
-import inspect
 import logging
 import pickle
 import threading
@@ -17,6 +16,12 @@ from multiprocessing import Queue, Lock
 from .client import sendmsg
 from .exceptions import RemoteException, TaskDoesNotExist, UnknownMessage
 from .utils import format_fn
+
+
+try:
+    from inspect import signature
+except ImportError:
+    from funcsigs import signature
 
 
 try:
@@ -306,10 +311,10 @@ def create_workers(address, modules, num_workers, interval):
                     task_list = {}
                     for task_name, task_fn in tasks.items():
                         try:
-                            signature = inspect.signature(task_fn)
+                            sig = signature(task_fn)
                         except ValueError as err:
-                            signature = err
-                        task_list[task_name] = signature
+                            sig = err
+                        task_list[task_name] = str(sig)
                     response = {
                         'tasks': task_list,
                         'schedules': schedules,
