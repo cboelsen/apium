@@ -340,4 +340,4 @@ def create_workers(address, modules, num_workers, interval):
         scheduler.join()
         server.shutdown()
         server.server_close()
-        executor.shutdown(wait=False)
+        executor.shutdown(wait=True)
