@@ -229,11 +229,14 @@ def add_task(executor, task, parent_future):
 @contextlib.contextmanager
 def create_workers(address, modules, num_workers, interval):
 
+    logging.debug('Setting up process pool with %s workers', num_workers)
     executor = concurrent.futures.ProcessPoolExecutor(max_workers=num_workers)
 
     for mod in modules:
+        logging.debug('Importing %s', mod)
         importlib.import_module(mod)
 
+    logging.debug('Setting up task scheduler thread')
     scheduler = threading.Thread(
         target=scheduler_process,
         args=(address, interval, schedule_queue),
@@ -327,17 +330,22 @@ def create_workers(address, modules, num_workers, interval):
                 logging.warning('Exception raised when processing request:\n%s', traceback.format_exc())
                 self.request.sendall(pickle.dumps(UnknownMessage(request)))
 
+    logging.debug('Setting up TCP server')
     socketserver.ThreadingTCPServer.allow_reuse_address = True
     server = socketserver.ThreadingTCPServer(address, TCPHandler)
 
+    logging.debug('Starting task scheduler')
     scheduler.start()
     try:
         yield server
     except KeyboardInterrupt:
         print('KeyboardInterrupt')
     finally:
+        logging.debug('Stopping task scheduler')
         schedule_queue.put(None)
         scheduler.join()
+        logging.debug('Shutting down TCP server')
         server.shutdown()
         server.server_close()
+        logging.debug('Shutting down process pool and waiting for currently running tasks to finish')
         executor.shutdown(wait=True)

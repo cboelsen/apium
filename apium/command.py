@@ -46,7 +46,7 @@ def start_workers():
     parser.add_argument(
         '-i', '--interval',
         dest='interval', type=float, default=DEFAULT_INTERVAL,
-        help='How often the scheduler should poll for scheduled tasks in seconds (default {})'.format(DEFAULT_INTERVAL),
+        help='How often the scheduler polls for scheduled tasks in seconds (default {})'.format(DEFAULT_INTERVAL),
     )
 
     parser.add_argument(
@@ -79,6 +79,7 @@ def start_workers():
     address = (server, int(port))
 
     with worker.create_workers(address, args.modules, args.num_workers, args.interval) as workers:
+        logging.debug('Starting TCP server')
         workers.serve_forever()
 
 
