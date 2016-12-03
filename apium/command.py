@@ -2,7 +2,7 @@ import argparse
 import logging
 import multiprocessing
 
-from . import worker
+from . import frameworks, worker
 from .client import DEFAULT_PORT
 from .inspect import print_inspected_worker, inspect_worker
 
@@ -77,6 +77,8 @@ def start_workers():
     setup_logging(args)
     server, port = args.bind.rsplit(':', 1)
     address = (server, int(port))
+
+    frameworks.setup()
 
     with worker.create_workers(address, args.modules, args.num_workers, args.interval) as workers:
         logging.debug('Starting TCP server')

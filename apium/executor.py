@@ -7,8 +7,9 @@ from .exceptions import DeadExecutor
 
 
 class Future(concurrent.futures.Future):
-    """Encapsulates the asynchronous execution of a task. Future instances
-    are created by :py:meth:`apium.TaskExecutor.submit`,
+    """Encapsulates the asynchronous execution of a task.
+    
+    Future instances are created by :py:meth:`apium.TaskExecutor.submit`,
     :py:meth:`~apium.Future.then` and :py:meth:`~apium.Future.catch`, and
     should not be created directly except for testing.
     """
