@@ -13,7 +13,7 @@ setup(
             'apium-inspect = apium.command:inspect',
         ],
     },
-    license='LICENSE',
+    license='LGPLv3+',
     description=open('README').read(),
     install_requires=[],
     keywords=['celery', 'task', 'queue'],
