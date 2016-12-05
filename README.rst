@@ -5,11 +5,12 @@ Apium
     :alt: Build status
     :target: https://travis-ci.org/cryporchild/apium/
 
-.. |coverage| image:: https://codecov.io/github/cryporchild/apium/coverage.svg?branch=master
+.. image:: https://codecov.io/github/cryporchild/apium/coverage.svg?branch=master
+    :alt: Code coverage
     :target: https://codecov.io/github/cryporchild/apium?branch=master
 
 .. image:: https://img.shields.io/pypi/l/apium.svg
-    :alt: LGPLv3+ License
+    :alt: LGPLv3+ license
     :target: https://opensource.org/licenses/lgpl-3.0.html
 
 .. image:: https://img.shields.io/pypi/wheel/apium.svg
