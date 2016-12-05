@@ -14,7 +14,7 @@ setup(
         ],
     },
     license='LGPLv3+',
-    description=open('README').read(),
+    description=open('README.rst').read(),
     install_requires=[],
     keywords=['celery', 'task', 'queue'],
     classifiers=[
