@@ -1,0 +1,43 @@
+CHANGES
+=======
+
+0.0.3
+-----
+
+* Add backported library requirements for py27
+* Metadata fixups
+* README is an rst file
+* Add codecov support
+* Use tox-travis to only run each env once
+* First (broken) attempt at using pbr
+* Fix previous commit
+* Try a different travis.yml
+* Set up travis-ci
+* Bump version to v0.0.3
+* Setup django if the user specifies django settings
+* Add extra debug logging at startup and shutdown
+* Wait for currently running tasks on worker shutdown
+* Get inspect functionality working on python2.7
+* Bump version to v0.0.2
+* Sort out setup metadata for pypi
+* Get python2.7 working, minus the inspect functionality
+* Fix bug when shutting down TaskExecutor after cancelling a Future
+* Add basic API docs for public method/functions
+* Separate tests for the crypt package
+* Add crypto helpers, but don't use them yet
+* Allow more task inspection
+* Add some initial remote inspection of tasks
+* Add tests for wait, as_completed
+* Big refactor: Executor now polls for task states
+* Add tests to (almost) fully cover the code
+* Trim unneeded code; improve test coverage
+* Add initial lot of sort-of-unit tests
+* Add tasks that can catch exceptions
+* Add task chaining using then()
+* Code cleanups and deduplication
+* Rewrite to piggyback on concurrent.futures
+* Workers now get/update tasks over sockets
+* Allow schedules to be dynamically created
+* Change Task API; pass back exceptions; basic auth
+* Initial commit
+* Initial commit
