@@ -1,4 +1,14 @@
+import sys
+
 from setuptools import setup
+
+
+requirements = []
+if sys.version_info.major < 3:
+    requirements += [
+        'futures',
+        'funcsigs',
+    ]
 
 
 setup(
@@ -9,5 +19,6 @@ setup(
         ],
     },
     setup_requires=['pbr>=1.9', 'setuptools>=17.1'],
+    install_requires=requirements,
     pbr=True,
 )
