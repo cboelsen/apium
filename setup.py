@@ -1,4 +1,14 @@
+import sys
+
 from setuptools import setup, find_packages
+
+
+requirements = []
+if sys.version_info.major < 3:
+    requirements += [
+        'futures',
+        'funcsigs',
+    ]
 
 
 setup(
@@ -15,7 +25,7 @@ setup(
     },
     license='LGPLv3+',
     description=open('README.rst').read(),
-    install_requires=[],
+    install_requires=requirements,
     keywords=['celery', 'task', 'queue', 'job', 'async'],
     classifiers=[
         'Development Status :: 4 - Beta',
