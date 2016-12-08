@@ -5,7 +5,7 @@ Apium
     :alt: Build status
     :target: https://travis-ci.org/cryporchild/apium/
 
-.. image:: https://codecov.io/github/cryporchild/apium/coverage.svg?branch=master
+.. image:: https://codecov.io/github/cryporchild/apium/master.svg
     :alt: Code coverage
     :target: https://codecov.io/github/cryporchild/apium?branch=master
 
@@ -23,4 +23,8 @@ Apium
 
 .. image:: https://img.shields.io/pypi/v/apium.png
     :alt: Pypi link
+    :target: https://pypi.python.org/pypi/apium/
+
+.. image:: https://img.shields.io/pypi/status/apium.svg
+    :alt: Project status
     :target: https://pypi.python.org/pypi/apium/
