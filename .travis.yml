@@ -15,7 +15,9 @@ deploy:
   user: cboelsen-deploy
   password:
     secure: NSv5ajmq7JorAzuuVQZeucK/WVlCtkU3ZVAXhbRymE+LFfkVSdQPnsSd/08LT+MNXC20pcsFKtgYKWGk1j4eukfh5YOlP/QC2DzFXjsiIyEL8R0v356Lk834CbbshCRQIducd8+e089VSyyYLIhfuuspl8MjqbxlmiiDR27XiBiZanVBvQRV7Vkkvk8HqMpoWmd6iMmOaPz+bJKyqjSt+kc61uWyJoBNN67egI3YKv+P2fzeM+QGGfZHkt8Jv+HMC1bjeBtcU8TzCuch2kNFAX26CMyFdgdkUOWHlvVJjsmG82pvzV/Eom/uoAd1OhUdT9jmuzntcobthF7/A1F5qZn2e92ugIVV5dtQXjeM4BeR+3SwWmU2dbJewigTx3kRiqtFrAicKY/+yJKZM6uxmi8vP2bNEa8VZQWkdQ4G7esVjmvp2TlBCkF/Eze/XaxnLTqVa9ZKzPYMDOvFMIF6NBjFCrDcUdXLtqqY1+C9xQMBYCb/O2VC0IZMyoUWiaGk1Y04jpAdEBvR9rmswKMayteojiA6rHhg6lCikxva2/5kw/P07G8YVpyURMZlfXuJxCumbW7gfoYBSYKbXF4XiV6MLlVvKxrIkluWL6RWrhfUbr5+qdTuRIqCWnDunmdWggvggpBvFloKPqMHLUebdRy2FtIFhwNvDUL2q8/zB44=
+  distributions: sdist bdist_wheel
   on:
     tags: true
-    distributions: sdist bdist_wheel
     repo: cryporchild/apium
+    condition: $TRAVIS_PYTHON_VERSION = "3.5"
+    branch: master
