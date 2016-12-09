@@ -1,6 +1,17 @@
 CHANGES
 =======
 
+0.0.6
+-----
+
+* Only deploy to pypi once
+
+0.0.5
+-----
+
+* Added another badge (trying travis-ci again)
+* pbr needs up-to-date setuptools and pip
+
 0.0.4
 -----
 
