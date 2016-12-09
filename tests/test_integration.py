@@ -151,7 +151,7 @@ def test_chaining_task_that_is_yet_to_be_queued___chaining_as_per_normal(port_nu
 def test_task_timing_out___exception_raised(port_num, running_worker):
     with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
         task = executor.submit('add')
-        with pytest.raises(apium.TimeoutError):
+        with pytest.raises(apium.TaskTimeoutError):
             task.result(timeout=0.01)
 
 

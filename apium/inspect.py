@@ -1,12 +1,53 @@
+# -*- coding: utf-8 -*-
+
+"""
+.. module: inspect
+    :platform: Unix, Windows
+    :synopsis: Inspect the state of the tasks and their schedules.
+
+.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
+"""
+
+
+__all__ = ('inspect_worker', 'print_inspected_worker')
+
+
 from .client import sendmsg
 from .utils import format_fn
 
 
 def inspect_worker(address):
+    """Return a dict containing the state of the tasks and their schedules."""
     return sendmsg(address, {'op': 'inspect'})
 
 
+def _print_singly_scheduled_tasks(tasks_and_schedules):
+    print('Scheduled tasks:')
+    for task_name, schedules in tasks_and_schedules.items():
+        for schedule in schedules:
+            if not schedule[1]:
+                print('  * {}:\tScheduled for {}'.format(
+                    format_fn(task_name, schedule[2], schedule[3]),
+                    schedule[0].isoformat(' '),
+                ))
+    print()
+
+
+def _print_repeatedly_scheduled_tasks(tasks_and_schedules):
+    print('Recurring tasks:')
+    for task_name, schedules in tasks_and_schedules.items():
+        for schedule in schedules:
+            if schedule[1]:
+                print('  * {}:\tScheduled for {}; repeating every {}'.format(
+                    format_fn(task_name, schedule[2], schedule[3]),
+                    schedule[0].isoformat(' '),
+                    str(schedule[1]),
+                ))
+    print()
+
+
 def print_inspected_worker(details):
+    """Print the state of the tasks and their schedules to the console."""
     if details['tasks']:
         print('Registered tasks:')
         for task_name, task_sig in details['tasks'].items():
@@ -24,24 +65,7 @@ def print_inspected_worker(details):
         repeat_sched = {t: s for t, s in details['schedules'].items() if [sch for sch in s if sch[1]]}
 
         if single_sched:
-            print('Scheduled tasks:')
-            for task_name, schedules in single_sched.items():
-                for s in schedules:
-                    if not s[1]:
-                        print('  * {}:\tScheduled for {}'.format(
-                            format_fn(task_name, s[2], s[3]),
-                            s[0].isoformat(' '),
-                        ))
-            print()
+            _print_singly_scheduled_tasks(single_sched)
 
         if repeat_sched:
-            print('Recurring tasks:')
-            for task_name, schedules in repeat_sched.items():
-                for s in schedules:
-                    if s[1]:
-                        print('  * {}:\tScheduled for {}; repeating every {}'.format(
-                            format_fn(task_name, s[2], s[3]),
-                            s[0].isoformat(' '),
-                            str(s[1]),
-                        ))
-            print()
+            _print_repeatedly_scheduled_tasks(repeat_sched)

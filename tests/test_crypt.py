@@ -9,10 +9,10 @@ def test_diffie_hellman___generated_keys_are_the_same(port_num, running_worker):
     alice = DiffieHellman()
     bob = DiffieHellman()
 
-    alice.generate_key(bob.public_key)
-    bob.generate_key(alice.public_key)
+    alice_key = alice.generate_key(bob.public_key)
+    bob_key = bob.generate_key(alice.public_key)
 
-    assert alice.get_key() == bob.get_key()
+    assert alice_key == bob_key
 
 
 def test_message_encryption___message_could_be_decrypted(port_num, running_worker):

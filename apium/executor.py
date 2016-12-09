@@ -1,3 +1,17 @@
+# -*- coding: utf-8 -*-
+
+"""
+.. module: executor
+    :platform: Unix, Windows
+    :synopsis: The TaskExecutor and Future classes.
+
+.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
+"""
+
+
+__all__ = ('Future', 'TaskExecutor')
+
+
 import concurrent.futures
 import time
 import weakref
@@ -8,7 +22,7 @@ from .exceptions import DeadExecutor
 
 class Future(concurrent.futures.Future):
     """Encapsulates the asynchronous execution of a task.
-    
+
     Future instances are created by :py:meth:`apium.TaskExecutor.submit`,
     :py:meth:`~apium.Future.then` and :py:meth:`~apium.Future.catch`, and
     should not be created directly except for testing.
@@ -171,7 +185,7 @@ class TaskExecutor(concurrent.futures.Executor):
         return self._new_future(task)
 
     def submit(self, task_name, *args, **kwargs):
-        """Submits a task to be executed with the given arguments.
+        r"""Submits a task to be executed with the given arguments.
 
         Schedules the task to be executed as fn(\*args, \*\*kwargs) and returns
         a Future instance representing the execution of the remote task.

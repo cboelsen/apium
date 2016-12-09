@@ -1,3 +1,17 @@
+# -*- coding: utf-8 -*-
+
+"""
+.. module: command
+    :platform: Unix, Windows
+    :synopsis: Functions for use as console entry points.
+
+.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
+"""
+
+
+__all__ = ('start_workers', 'inspect')
+
+
 import argparse
 import logging
 import multiprocessing
@@ -7,10 +21,10 @@ from .client import DEFAULT_PORT
 from .inspect import print_inspected_worker, inspect_worker
 
 
-def setup_logging(args):
-    FORMAT = '[%(asctime)-15s: %(levelname)+8s/%(processName)+11s]  %(message)s'
+def _setup_logging(args):
+    log_format = '[%(asctime)-15s: %(levelname)+8s/%(processName)+11s]  %(message)s'
     log_kwargs = {
-        'format': FORMAT,
+        'format': log_format,
         'level': logging.DEBUG if args.debug else logging.INFO
     }
     if args.logfile:
@@ -19,34 +33,35 @@ def setup_logging(args):
 
 
 def start_workers():
+    """Launch workers, a scheduler and a TCP server."""
     parser = argparse.ArgumentParser(description='Start workers to run the given tasks.')
     parser.add_argument('modules', nargs='+', help='Modules containing registered tasks.')
 
-    def num_workers_type(x):
-        x = int(x)
-        if x <= 0:
+    def _num_workers_type(num):
+        num = int(num)
+        if num <= 0:
             raise argparse.ArgumentTypeError("The number of workers must be greater than 0")
-        return x
+        return num
 
-    DEFAULT_NUM_WORKERS = multiprocessing.cpu_count()
+    default_num_workers = multiprocessing.cpu_count()
     parser.add_argument(
         '-n', '--num-workers',
-        dest='num_workers', type=num_workers_type, default=DEFAULT_NUM_WORKERS,
-        help='The number of worker processes to start (default {})'.format(DEFAULT_NUM_WORKERS),
+        dest='num_workers', type=_num_workers_type, default=default_num_workers,
+        help='The number of worker processes to start (default {})'.format(default_num_workers),
     )
 
-    DEFAULT_BIND = 'localhost:{}'.format(DEFAULT_PORT)
+    default_bind = 'localhost:{}'.format(DEFAULT_PORT)
     parser.add_argument(
         '-b', '--bind',
-        dest='bind', default=DEFAULT_BIND,
-        help='The address and port to bind the TCP server to (default {})'.format(DEFAULT_BIND),
+        dest='bind', default=default_bind,
+        help='The address and port to bind the TCP server to (default {})'.format(default_bind),
     )
 
-    DEFAULT_INTERVAL = 1
+    default_interval = 1
     parser.add_argument(
         '-i', '--interval',
-        dest='interval', type=float, default=DEFAULT_INTERVAL,
-        help='How often the scheduler polls for scheduled tasks in seconds (default {})'.format(DEFAULT_INTERVAL),
+        dest='interval', type=float, default=default_interval,
+        help='How often the scheduler polls for scheduled tasks in seconds (default {})'.format(default_interval),
     )
 
     parser.add_argument(
@@ -74,7 +89,7 @@ def start_workers():
     )
 
     args = parser.parse_args()
-    setup_logging(args)
+    _setup_logging(args)
     server, port = args.bind.rsplit(':', 1)
     address = (server, int(port))
 
@@ -86,13 +101,14 @@ def start_workers():
 
 
 def inspect():
+    """Print the state of the tasks and their schedules to the console."""
     parser = argparse.ArgumentParser(description='Inspect the task queue of the given workers.')
 
-    DEFAULT_BIND = 'localhost:{}'.format(DEFAULT_PORT)
+    default_bind = 'localhost:{}'.format(DEFAULT_PORT)
     parser.add_argument(
         '-c', '--connect',
-        dest='connect', default=DEFAULT_BIND,
-        help='The address and port to bind the TCP server to (default {})'.format(DEFAULT_BIND),
+        dest='connect', default=default_bind,
+        help='The address and port to bind the TCP server to (default {})'.format(default_bind),
     )
 
     parser.add_argument(

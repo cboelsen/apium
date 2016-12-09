@@ -1,6 +1,17 @@
-from concurrent.futures import (
+# -*- coding: utf-8 -*-
+
+"""
+.. module: exceptions
+    :platform: Unix, Windows
+    :synopsis: The collection of common exceptions.
+
+.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
+"""
+
+
+from concurrent.futures import (   # pylint: disable=W0611
     CancelledError,
-    TimeoutError,
+    TimeoutError as TaskTimeoutError,
 )
 
 

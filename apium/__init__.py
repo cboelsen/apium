@@ -1,3 +1,14 @@
+# -*- coding: utf-8 -*-
+
+"""
+.. module: apium
+    :platform: Unix, Windows
+    :synopsis: User facing imports.
+
+.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
+"""
+
+
 from concurrent.futures import (
     wait,
     as_completed,
@@ -5,7 +16,7 @@ from concurrent.futures import (
     FIRST_EXCEPTION,
     ALL_COMPLETED,
 )
-from .exceptions import *
+from .exceptions import *   # pylint: disable=W0401
 from .executor import TaskExecutor, Future
 from .worker import register_task, schedule_task
 
