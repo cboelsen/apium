@@ -1,6 +1,8 @@
 CHANGES
 =======
 
+* Get the version for the sphinx docs from pbr
+
 0.0.6
 -----
 
