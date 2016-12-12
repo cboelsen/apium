@@ -2,10 +2,7 @@
 
 """
 .. module: utils
-    :platform: Unix, Windows
     :synopsis: A collection of useful, cross-module functions.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

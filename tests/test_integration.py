@@ -1,5 +1,4 @@
 import functools
-import inspect
 import pytest
 import tempfile
 import time
@@ -288,3 +287,8 @@ def test_print_inspect___runs_without_exception(port_num, running_worker):
     with apium.TaskExecutor(port=port_num, polling_interval=0.02) as executor:
         executor.submit('add', 1)
         print_inspected_worker(inspect_worker(('localhost', port_num)))
+
+
+def test_framework_setup_without_extra_frameworks___happily_continues(port_num, running_worker):
+    import apium.frameworks
+    apium.frameworks.setup()

@@ -2,10 +2,7 @@
 
 """
 .. module: command
-    :platform: Unix, Windows
     :synopsis: Functions for use as console entry points.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 
@@ -95,9 +92,11 @@ def start_workers():
 
     frameworks.setup()
 
-    with worker.create_workers(address, args.modules, args.num_workers, args.interval) as workers:
-        logging.debug('Starting TCP server')
-        workers.serve_forever()
+    with worker.create_workers(args.modules, args.num_workers) as workers:
+        with worker.setup_tcp_server(address, workers) as tcp_server:
+            with worker.setup_scheduler(address, args.interval):
+                logging.debug('Starting TCP server')
+                tcp_server.serve_forever()
 
 
 def inspect():

@@ -2,10 +2,7 @@
 
 """
 .. module: exceptions
-    :platform: Unix, Windows
     :synopsis: The collection of common exceptions.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

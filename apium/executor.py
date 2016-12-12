@@ -2,10 +2,7 @@
 
 """
 .. module: executor
-    :platform: Unix, Windows
     :synopsis: The TaskExecutor and Future classes.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

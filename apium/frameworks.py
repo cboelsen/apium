@@ -2,10 +2,7 @@
 
 """
 .. module: frameworks
-    :platform: Unix, Windows
     :synopsis: Functions to ease integration with various frameworks.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

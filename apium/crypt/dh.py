@@ -2,10 +2,7 @@
 
 """
 .. module: dh
-    :platform: Unix, Windows
     :synopsis: Simple implementation of Diffie-Hellman.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 
