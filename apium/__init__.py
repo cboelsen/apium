@@ -2,10 +2,7 @@
 
 """
 .. module: apium
-    :platform: Unix, Windows
     :synopsis: User facing imports.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

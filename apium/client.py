@@ -2,10 +2,7 @@
 
 """
 .. module: client
-    :platform: Unix, Windows
     :synopsis: Basic functions for interacting with the server.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

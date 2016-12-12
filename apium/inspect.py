@@ -2,10 +2,7 @@
 
 """
 .. module: inspect
-    :platform: Unix, Windows
     :synopsis: Inspect the state of the tasks and their schedules.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

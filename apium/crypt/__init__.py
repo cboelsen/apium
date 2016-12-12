@@ -2,10 +2,7 @@
 
 """
 .. module: crypt
-    :platform: Unix, Windows
     :synopsis: Message encryption and decryption.
-
-.. moduleauthor:: Christian Boelsen <christianboelsen+github@gmail.com>
 """
 
 

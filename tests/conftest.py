@@ -42,7 +42,7 @@ def task_add():
     try:
         yield fn
     finally:
-        del apium.worker.tasks['add']
+        del apium.worker.WorkersState.tasks['add']
 
 
 @pytest.yield_fixture(scope="session")
@@ -51,7 +51,7 @@ def task_raise():
     try:
         yield fn
     finally:
-        del apium.worker.tasks['raiser']
+        del apium.worker.WorkersState.tasks['raiser']
 
 
 @pytest.yield_fixture(scope="session")
@@ -60,15 +60,18 @@ def task_format_exc():
     try:
         yield fn
     finally:
-        del apium.worker.tasks['format_exc']
+        del apium.worker.WorkersState.tasks['format_exc']
 
 
 @pytest.yield_fixture(scope="session")
 def running_worker(port_num, task_add, task_raise, task_format_exc):
     import threading
-    with apium.worker.create_workers(('localhost', port_num), ['task_import'], 2, 0.01) as workers:
-        thread = threading.Thread(target=workers.serve_forever)
-        thread.start()
-        while not is_port_open(port_num):
-            time.sleep(0.1)
-        yield
+    address = ('localhost', port_num)
+    with apium.worker.create_workers(['task_import'], 2) as workers:
+        with apium.worker.setup_tcp_server(address, workers) as tcp_server:
+            with apium.worker.setup_scheduler(address, 0.01):
+                thread = threading.Thread(target=tcp_server.serve_forever)
+                thread.start()
+                while not is_port_open(port_num):
+                    time.sleep(0.1)
+                yield
