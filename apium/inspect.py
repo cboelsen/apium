@@ -27,7 +27,7 @@ def _print_singly_scheduled_tasks(tasks_and_schedules):
                     format_fn(task_name, schedule[2], schedule[3]),
                     schedule[0].isoformat(' '),
                 ))
-    print()
+    print('')
 
 
 def _print_repeatedly_scheduled_tasks(tasks_and_schedules):
@@ -40,7 +40,7 @@ def _print_repeatedly_scheduled_tasks(tasks_and_schedules):
                     schedule[0].isoformat(' '),
                     str(schedule[1]),
                 ))
-    print()
+    print('')
 
 
 def print_inspected_worker(details):
@@ -49,13 +49,13 @@ def print_inspected_worker(details):
         print('Registered tasks:')
         for task_name, task_sig in details['tasks'].items():
             print('  * {}{}'.format(task_name, task_sig))
-        print()
+        print('')
 
     if details['running']:
         print('Running tasks:')
         for task in details['running']:
             print('  * {}:   {}'.format(task['id'].decode(), format_fn(task['name'], task['args'], task['kwargs'])))
-        print()
+        print('')
 
     if details['schedules']:
         single_sched = {t: s for t, s in details['schedules'].items() if [sch for sch in s if not sch[1]]}
