@@ -136,15 +136,16 @@ class TaskExecutor(concurrent.futures.Executor):
     def _update_details(self, future, details):
         try:
             state = details['state']
-            notifiable_states = [
-                concurrent.futures._base.CANCELLED_AND_NOTIFIED,
-                concurrent.futures._base.RUNNING
-            ]
-            if future._state != state and state in notifiable_states:
-                # TODO: Need to delete this task from self._tasks if cancelled.
-                future.set_running_or_notify_cancel()
         except KeyError:
             return
+
+        notifiable_states = [
+            concurrent.futures._base.CANCELLED_AND_NOTIFIED,
+            concurrent.futures._base.RUNNING
+        ]
+        if future._state != state and state in notifiable_states:
+            future.set_running_or_notify_cancel()
+
         result = details['result']
         if future._result != result:
             future.set_result(result)
@@ -173,7 +174,12 @@ class TaskExecutor(concurrent.futures.Executor):
         self._tasks[details['id']] = future
         return future
 
+    def _check_not_shutting_down(self):
+        if self._shutting_down:
+            raise RuntimeError('cannot schedule new tasks after shutdown')
+
     def _chain(self, future, chain_type, fn, *args, **kwargs):
+        self._check_not_shutting_down()
         task = sendmsg(self._address, {
             'op': 'chain',
             'task': {'name': fn, 'args': args, 'kwargs': kwargs, 'type': chain_type},
@@ -198,8 +204,7 @@ class TaskExecutor(concurrent.futures.Executor):
         :raises RuntimeError: if the Executor has already shut down.
         :raises TaskDoesNotExist: if a task with the given name doesn't exist.
         """
-        if self._shutting_down:
-            raise RuntimeError('cannot schedule new tasks after shutdown')
+        self._check_not_shutting_down()
         task = sendmsg(self._address, {'op': 'submit', 'task': {'name': task_name, 'args': args, 'kwargs': kwargs}})
         return self._new_future(task)
 

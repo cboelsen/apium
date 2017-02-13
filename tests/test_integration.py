@@ -200,6 +200,35 @@ def test_cancelling_task_after_executor_dies___exception_raised(port_num, runnin
         task.cancel()
 
 
+def test_chaininging_task_after_executor_dies___exception_raised(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
+        task = executor.submit('add', 1, 2, 3)
+    with pytest.raises(apium.DeadExecutor):
+        task.then('add', 4)
+
+
+def test_submitting_task_after_executor_shutdown___exception_raised(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
+        executor._shutting_down = True
+        with pytest.raises(RuntimeError):
+            executor.submit('add', 1, 2, 3)
+
+
+def test_cancelling_task___executor_doesnt_wait_for_cancelled_task_on_shutdown(port_num, running_worker):
+    with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
+        values = list(range(8))
+        tasks = [executor.submit('add', value) for value in values]
+        assert tasks[-1].cancel() is True
+
+
+def test_shutting_down_executor_without_waiting___executor_shuts_down_cleanly(port_num, running_worker):
+    executor = apium.TaskExecutor(port=port_num, polling_interval=0.1)
+    values = list(range(8))
+    for value in values:
+        executor.submit('add', value)
+    executor.shutdown(wait=False)
+
+
 def test_wait_all_completed___all_futures_done(port_num, running_worker):
     with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
         values = list(range(6))

@@ -1,6 +1,7 @@
 CHANGES
 =======
 
+* Add a python3.6 env to tox.ini
 * Print empty string, not braces, in python2.7
 * Code cleanups and linter warning fixes
 * Fix the majority of the pylint warnings
