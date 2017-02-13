@@ -164,7 +164,7 @@ def test_scheduling_tasks___tasks_called_on_schedule(port_num, running_worker):
             datetime.now() + timedelta(seconds=wait),
             args=(filename, )
         )(task_import.scheduled_fn)
-        time.sleep(2 * wait)
+        time.sleep(3 * wait)
         assert len(open(filename).read()) is 1
 
 

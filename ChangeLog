@@ -1,9 +1,7 @@
 CHANGES
 =======
 
-0.0.7
------
-
+* Print empty string, not braces, in python2.7
 * Code cleanups and linter warning fixes
 * Fix the majority of the pylint warnings
 * Fix some pylint warnings and run doctests in tox
