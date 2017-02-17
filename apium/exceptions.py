@@ -26,6 +26,14 @@ class TaskDoesNotExist(Exception):
     pass
 
 
+class TaskWasNotSubmitted(Exception):
+    """Raised when the given task ID is not found on the remote worker. This
+    usually indicates the wrong UUID was passed, or the task was submitted
+    from a different client.
+    """
+    pass
+
+
 class UnknownMessage(Exception):
     """Raised by a worker when it receives a message it can't process."""
     pass

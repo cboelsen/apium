@@ -31,7 +31,12 @@ from datetime import datetime
 from multiprocessing import Queue, Lock
 
 from .client import sendmsg
-from .exceptions import RemoteException, TaskDoesNotExist, UnknownMessage
+from .exceptions import (
+    RemoteException,
+    TaskDoesNotExist,
+    TaskWasNotSubmitted,
+    UnknownMessage,
+)
 from .utils import format_fn
 
 
@@ -220,13 +225,14 @@ def check_for_chain(parent_id, executor, parent_future):
         del WorkersState.chains[parent_id]
 
 
-def future_values_fall_through(task_id, parent_future):
+def future_values_fall_through(task, parent_future):
     """Pass the parent's state onto the child."""
     future = concurrent.futures.Future()
     future._state = parent_future._state
     future._result = parent_future._result
     future._exception = parent_future._exception
-    WorkersState.futures[task_id] = future
+    future._task = task
+    WorkersState.futures[task['id']] = future
 
 
 def submit_new_task(executor, task):
@@ -246,12 +252,12 @@ def add_task(executor, task, parent_future):
             task['args'] = (err, ) + task['args']
             submit_new_task(executor, task)
         else:
-            future_values_fall_through(task['id'], parent_future)
+            future_values_fall_through(task, parent_future)
     else:
         if task['type'] == 'then':
             submit_new_task(executor, task)
         else:
-            future_values_fall_through(task['id'], parent_future)
+            future_values_fall_through(task, parent_future)
 
 
 @contextlib.contextmanager
@@ -324,6 +330,18 @@ def setup_scheduler(address, interval):
         scheduler.join()
 
 
+def get_future(task_id, client_address):
+    """Get the future associated with the given task ID, and check that it was
+    originally submitted by the same client.
+    """
+    future = WorkersState.futures[task_id]
+    if future is not None:
+        task = future._task
+        if task['client'] != client_address:
+            raise TaskWasNotSubmitted(task_id)
+    return future
+
+
 @contextlib.contextmanager
 def setup_tcp_server(address, workers):
     """Set up and then yield the TCP server.
@@ -340,7 +358,6 @@ def setup_tcp_server(address, workers):
         """Handle requests for running tasks and getting results."""
 
         def _handle_task_submission(self, task):
-            # TODO: Use the client address if the client says task is "private".
             if task['name'] not in WorkersState.tasks:
                 return TaskDoesNotExist(task['name'])
             task['client'] = self.client_address[0]
@@ -350,9 +367,8 @@ def setup_tcp_server(address, workers):
             submit_new_task(workers, task)
             return task
 
-        @staticmethod
-        def _handle_task_cancellation(task_id):
-            future = WorkersState.futures[task_id]
+        def _handle_task_cancellation(self, task_id):
+            future = get_future(task_id, self.client_address[0])
             if future is not None:
                 response = future.cancel()
             else:
@@ -371,9 +387,8 @@ def setup_tcp_server(address, workers):
             state['response'] = response
             return state
 
-        @staticmethod
-        def _handle_task_poll(task_id):
-            future = WorkersState.futures[task_id]
+        def _handle_task_poll(self, task_id):
+            future = get_future(task_id, self.client_address[0])
             state = get_future_state(future)
             logging.debug('Polled for task [%s]: %s', task_id.decode(), state)
             return state
@@ -384,13 +399,13 @@ def setup_tcp_server(address, workers):
             task['client'] = self.client_address[0]
             task_id = str(uuid.uuid4()).encode()
             task['id'] = task_id
-            future = WorkersState.futures[parent_id]
-            if future is not None and future.done():
-                add_task(workers, task, future)
-            else:
-                with WorkersState.chains_lock:
+            future = get_future(parent_id, self.client_address[0])
+            with WorkersState.chains_lock:
+                if future is not None and future.done():
+                    add_task(workers, task, future)
+                else:
                     WorkersState.chains[parent_id].append(task)
-                WorkersState.futures[task_id] = None
+                    WorkersState.futures[task_id] = None
             logging.debug('Chained task %s to [%s]', format_task(task, chain=True), parent_id.decode())
             return task
 
@@ -430,20 +445,23 @@ def setup_tcp_server(address, workers):
                     state = self._handle_task_poll(task_id)
                     self.request.sendall(pickle.dumps(state))
                 elif request['op'] == 'chain':
-                    # TODO: Use the client address if the client says task is "private".
                     task = request['task']
                     parent_id = request['parent']
                     task = self._handle_task_chaining(task, parent_id)
                     self.request.sendall(pickle.dumps(task))
                 elif request['op'] == 'inspect':
+                    # TODO: How to handle inspect being sent from remote clients???
                     inspect_response = self._handle_task_queue_inspection()
                     self.request.sendall(pickle.dumps(inspect_response))
                 else:
                     self.request.sendall(pickle.dumps(UnknownMessage(request)))
-            except Exception:
-                logging.warning('Exception raised when processing request:\n%s', traceback.format_exc())
-                # TODO: This does not always mean it was an unknown message!!
+            except TaskWasNotSubmitted as error:
+                self.request.sendall(pickle.dumps(error))
+            except (KeyError, TypeError):
                 self.request.sendall(pickle.dumps(UnknownMessage(request)))
+            except Exception as error:
+                logging.warning('Exception raised when processing request:\n%s', traceback.format_exc())
+                self.request.sendall(pickle.dumps(error))
 
     logging.debug('Setting up TCP server')
     socketserver.ThreadingTCPServer.allow_reuse_address = True

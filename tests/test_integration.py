@@ -321,3 +321,28 @@ def test_print_inspect___runs_without_exception(port_num, running_worker):
 def test_framework_setup_without_extra_frameworks___happily_continues(port_num, running_worker):
     import apium.frameworks
     apium.frameworks.setup()
+
+
+def test_tasks_are_segregated_by_address___cant_check_task_from_different_ip(port_num, running_worker):
+    def send_msg_from(address, port_num, bind_addr, future):
+        import socket
+        import pickle
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind((bind_addr, 0))
+        try:
+            sock.connect((address, port_num))
+            sock.sendall(pickle.dumps({'op': 'poll', 'id': future._id}))
+            received = sock.recv(10240)
+            result = pickle.loads(received)
+            if isinstance(result, Exception):
+                raise result
+            return result
+        finally:
+            sock.close()
+
+    with apium.TaskExecutor(server='127.0.0.1', port=port_num, polling_interval=0.1) as executor:
+        future1 = executor.submit('add', 2, 3)
+        send_msg_from('127.0.0.1', port_num, '127.0.0.1', future1)
+        future2 = executor.submit('add', 2, 3)
+        with pytest.raises(apium.TaskWasNotSubmitted):
+            send_msg_from('127.0.0.1', port_num, '127.0.0.3', future2)
