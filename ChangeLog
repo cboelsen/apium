@@ -1,6 +1,7 @@
 CHANGES
 =======
 
+* Restrict access to tasks based on client address
 * Check for executor shutdown when chaining tasks
 * Add a python3.6 env to tox.ini
 * Print empty string, not braces, in python2.7
