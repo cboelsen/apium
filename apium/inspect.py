@@ -54,7 +54,9 @@ def print_inspected_worker(details):
     if details['running']:
         print('Running tasks:')
         for task in details['running']:
-            print('  * {}:   {}'.format(task['id'].decode(), format_fn(task['name'], task['args'], task['kwargs'])))
+            if task is not None:
+                task_id = task['id'].decode()
+                print('  * {}:   {}'.format(task_id, format_fn(task['name'], task['args'], task['kwargs'])))
         print('')
 
     if details['schedules']:

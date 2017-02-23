@@ -10,6 +10,23 @@ import apium
 from apium.inspect import inspect_worker, print_inspected_worker
 
 
+def send_msg_from(address, port_num, bind_addr, msg):
+    import socket
+    import pickle
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((bind_addr, 0))
+    try:
+        sock.connect((address, port_num))
+        sock.sendall(pickle.dumps(msg))
+        received = sock.recv(10240)
+        result = pickle.loads(received)
+        if isinstance(result, Exception):
+            raise result
+        return result
+    finally:
+        sock.close()
+
+
 def test_basic_task_run___state_is_consistent(port_num, running_worker):
     with apium.TaskExecutor(port=port_num, polling_interval=0.1) as executor:
         task = executor.submit('add', 1, 2, 3)
@@ -324,25 +341,23 @@ def test_framework_setup_without_extra_frameworks___happily_continues(port_num, 
 
 
 def test_tasks_are_segregated_by_address___cant_check_task_from_different_ip(port_num, running_worker):
-    def send_msg_from(address, port_num, bind_addr, future):
-        import socket
-        import pickle
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind((bind_addr, 0))
-        try:
-            sock.connect((address, port_num))
-            sock.sendall(pickle.dumps({'op': 'poll', 'id': future._id}))
-            received = sock.recv(10240)
-            result = pickle.loads(received)
-            if isinstance(result, Exception):
-                raise result
-            return result
-        finally:
-            sock.close()
-
     with apium.TaskExecutor(server='127.0.0.1', port=port_num, polling_interval=0.1) as executor:
         future1 = executor.submit('add', 2, 3)
-        send_msg_from('127.0.0.1', port_num, '127.0.0.1', future1)
+        send_msg_from('127.0.0.1', port_num, '127.0.0.1', {'op': 'poll', 'id': future1._id})
         future2 = executor.submit('add', 2, 3)
         with pytest.raises(apium.TaskWasNotSubmitted):
-            send_msg_from('127.0.0.1', port_num, '127.0.0.3', future2)
+            send_msg_from('127.0.0.1', port_num, '127.0.0.3', {'op': 'poll', 'id': future2._id})
+
+
+def test_inspect_from_other_client___cant_see_running_tasks(port_num, running_worker):
+    with apium.TaskExecutor(server='127.0.0.1', port=port_num, polling_interval=0.1) as executor:
+        executor.submit('add', 2, 3)
+        executor.submit('add', 2, 3)
+        details = send_msg_from('127.0.0.1', port_num, '127.0.0.1', {'op': 'inspect'})
+        assert len(details['running']) == 2
+        assert details['running'][0] is not None
+        assert details['running'][1] is not None
+        details = send_msg_from('127.0.0.1', port_num, '127.1.1.3', {'op': 'inspect'})
+        assert len(details['running']) == 2
+        assert details['running'][0] is None
+        assert details['running'][1] is None

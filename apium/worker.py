@@ -409,8 +409,7 @@ def setup_tcp_server(address, workers):
             logging.debug('Chained task %s to [%s]', format_task(task, chain=True), parent_id.decode())
             return task
 
-        @staticmethod
-        def _handle_task_queue_inspection():
+        def _handle_task_queue_inspection(self):
             task_list = {}
             for task_name, task_fn in WorkersState.tasks.items():
                 try:
@@ -418,10 +417,18 @@ def setup_tcp_server(address, workers):
                 except ValueError as err:
                     sig = err
                 task_list[task_name] = str(sig)
+
+            def get_task_if_from_client(future):
+                task = future._task
+                addr = self.client_address[0]
+                if task['client'] != addr and not addr.startswith('127.0.0'):
+                    return None
+                return task
+
             response = {
                 'tasks': task_list,
                 'schedules': WorkersState.schedules,
-                'running': [f._task for f in WorkersState.futures.values() if f and f.running()],
+                'running': [get_task_if_from_client(f) for f in WorkersState.futures.values() if f and f.running()],
             }
             return response
 
@@ -450,7 +457,6 @@ def setup_tcp_server(address, workers):
                     task = self._handle_task_chaining(task, parent_id)
                     self.request.sendall(pickle.dumps(task))
                 elif request['op'] == 'inspect':
-                    # TODO: How to handle inspect being sent from remote clients???
                     inspect_response = self._handle_task_queue_inspection()
                     self.request.sendall(pickle.dumps(inspect_response))
                 else:
