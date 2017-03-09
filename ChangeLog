@@ -1,6 +1,15 @@
 CHANGES
 =======
 
+0.1.1
+-----
+
+* Fix race condition in unit tests
+
+0.1.0
+-----
+
+* Only inspect running task info from same client
 * Include the django tests in the normal pytest run
 * Restrict access to tasks based on client address
 * Check for executor shutdown when chaining tasks

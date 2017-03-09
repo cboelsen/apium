@@ -260,8 +260,8 @@ def test_wait_first_completed___one_future_done(port_num, running_worker):
         values = list(range(6))
         tasks = [executor.submit('add', value) for value in values]
         results = apium.wait(tasks, return_when=apium.FIRST_COMPLETED)
-        assert len(results.done) == 1
-        assert len(results.not_done) == len(values) - 1
+        assert len(results.done) >= 1
+        assert len(results.not_done) <= len(values) - 1
 
 
 def test_wait_first_exception___all_futures_done(port_num, running_worker):
@@ -351,6 +351,8 @@ def test_tasks_are_segregated_by_address___cant_check_task_from_different_ip(por
 
 def test_inspect_from_other_client___cant_see_running_tasks(port_num, running_worker):
     with apium.TaskExecutor(server='127.0.0.1', port=port_num, polling_interval=0.1) as executor:
+        while len(inspect_worker(('localhost', port_num))['running']) > 0:
+            time.sleep(0.1)
         executor.submit('add', 2, 3)
         executor.submit('add', 2, 3)
         details = send_msg_from('127.0.0.1', port_num, '127.0.0.1', {'op': 'inspect'})

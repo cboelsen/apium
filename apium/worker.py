@@ -418,7 +418,7 @@ def setup_tcp_server(address, workers):
                     sig = err
                 task_list[task_name] = str(sig)
 
-            def get_task_if_from_client(future):
+            def _get_task_if_from_client(future):
                 task = future._task
                 addr = self.client_address[0]
                 if task['client'] != addr and not addr.startswith('127.0.0'):
@@ -428,7 +428,7 @@ def setup_tcp_server(address, workers):
             response = {
                 'tasks': task_list,
                 'schedules': WorkersState.schedules,
-                'running': [get_task_if_from_client(f) for f in WorkersState.futures.values() if f and f.running()],
+                'running': [_get_task_if_from_client(f) for f in WorkersState.futures.values() if f and f.running()],
             }
             return response
 
